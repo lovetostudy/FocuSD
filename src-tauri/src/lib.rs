@@ -133,6 +133,20 @@ fn minimize_island(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn temporarily_hide_island(app: AppHandle) -> Result<(), String> {
+    hide_island(&app);
+
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(5));
+        if let Ok(window) = main_window(&app) {
+            let _ = window.show();
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
 fn save_todo_markdown(
     directory: String,
     date: String,
@@ -377,7 +391,8 @@ pub fn run() {
             set_island_layout,
             set_island_interaction,
             save_todo_markdown,
-            minimize_island
+            minimize_island,
+            temporarily_hide_island
         ])
         .run(tauri::generate_context!())
         .expect("error while running FocuSD Island");

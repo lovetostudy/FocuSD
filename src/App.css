@@ -140,6 +140,17 @@ input {
   line-height: 1;
 }
 
+.island__todo-count {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(168, 216, 234, 0.86);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .island__active-task {
   min-width: 0;
   flex: 1;
@@ -152,12 +163,37 @@ input {
   white-space: nowrap;
 }
 
-.island__status {
-  min-width: 0;
+.island__quiet-button {
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
   margin-left: auto;
-  color: rgba(248, 246, 240, 0.68);
-  font-size: 13px;
-  line-height: 1;
+  padding: 0;
+  background: rgba(186, 186, 186, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 0 12px rgba(255, 255, 255, 0.08);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.island__quiet-button:hover {
+  background: rgba(210, 210, 210, 0.58);
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: scale(1.08);
+}
+
+.island__quiet-button:focus-visible {
+  outline: 2px solid rgba(143, 216, 255, 0.72);
+  outline-offset: 4px;
 }
 
 .island__expanded {
@@ -179,9 +215,9 @@ input {
 
 .island__header {
   display: grid;
-  grid-template-columns: minmax(112px, auto) minmax(0, 1fr) auto;
+  grid-template-columns: auto 48px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-height: 34px;
 }
 
@@ -209,28 +245,22 @@ input {
   color: #74d6ff;
 }
 
-.island__header-center {
-  min-width: 0;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  padding-left: 24px;
-  border-radius: 999px;
-  cursor: pointer;
-  outline: none;
-}
-
-.island__header-center:focus-visible {
-  outline: 2px solid rgba(143, 216, 255, 0.68);
-  outline-offset: 2px;
-}
-
 .editor-dots {
   display: inline-flex;
   align-items: center;
   justify-self: start;
-  gap: 10px;
-  min-width: 12px;
+  gap: 9px;
+  width: 48px;
+  height: 34px;
+  padding-left: 4px;
+}
+
+.island__collapse-target {
+  min-width: 0;
+  height: 68px;
+  margin: -18px 0 -16px;
+  cursor: pointer;
+  outline: none;
 }
 
 .dot-button {
@@ -385,7 +415,10 @@ input {
 .todo-spine-button {
   width: 18px;
   height: 18px;
+  display: inline-grid;
+  place-items: center;
   padding: 0;
+  color: #ffffff;
   border-radius: 999px;
   border: 0;
   outline: none;
@@ -429,6 +462,7 @@ input {
 
 .todo-spine-button--saved {
   animation: savePop 800ms ease both;
+  background: #2f8c61;
   box-shadow:
     0 0 0 5px rgba(152, 212, 187, 0.24),
     0 10px 18px rgba(72, 56, 43, 0.2);
@@ -570,8 +604,9 @@ input {
   min-height: 0;
   display: grid;
   align-content: start;
+  grid-auto-rows: max-content;
   gap: 8px;
-  overflow-y: hidden;
+  overflow-y: auto;
   padding-right: 4px;
 }
 
@@ -600,10 +635,10 @@ input {
 }
 
 .todo-item {
-  min-height: 38px;
+  min-height: max(38px, calc(var(--todo-title-min-height, 19px) + 16px));
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto 28px;
-  align-items: center;
+  align-items: start;
   gap: 8px;
   padding: 7px 8px;
   background: rgba(255, 255, 255, 0.48);
@@ -627,6 +662,7 @@ input {
 .todo-check {
   width: 22px;
   height: 22px;
+  align-self: start;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -655,8 +691,9 @@ input {
 }
 
 .todo-title {
+  display: block;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   font-family:
     "Aptos",
     "Avenir Next",
@@ -665,14 +702,16 @@ input {
     sans-serif;
   font-size: 14px;
   font-weight: 700;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .todo-start {
   min-width: 70px;
   height: 27px;
+  align-self: start;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -709,6 +748,7 @@ input {
 .todo-delete {
   width: 28px;
   height: 27px;
+  align-self: start;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -1014,6 +1054,7 @@ input {
 }
 
 .save-path-button {
+  min-width: 68px;
   height: 34px;
   display: inline-flex;
   align-items: center;
@@ -1027,10 +1068,68 @@ input {
   cursor: pointer;
   font-size: 12px;
   font-weight: 800;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .save-path-button:hover {
   background: #b4e3ce;
+}
+
+.save-path-button--saved {
+  color: #ffffff;
+  background: #2f8c61;
+  animation: saveButtonPop 760ms ease both;
+  box-shadow: 0 0 0 4px rgba(152, 212, 187, 0.22);
+}
+
+.save-path-button--saved:hover {
+  background: #37a06f;
+}
+
+.save-check-icon {
+  flex: 0 0 auto;
+  animation: saveCheckPop 420ms ease both;
+}
+
+.save-check-icon path,
+.save-check-icon polyline,
+.save-check-icon line {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: saveCheckDraw 420ms ease forwards;
+}
+
+@keyframes saveButtonPop {
+  0% {
+    transform: scale(1);
+  }
+  42% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes saveCheckPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.62);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes saveCheckDraw {
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1039,9 +1138,19 @@ input {
   .island__expanded,
   .dot-button,
   .icon-button,
+  .island__quiet-button,
+  .island__collapse-target,
   .todo-item,
   .todo-start,
-  .todo-delete {
+  .todo-delete,
+  .save-path-button {
     transition: none;
+  }
+
+  .save-check-icon,
+  .save-check-icon path,
+  .save-check-icon polyline,
+  .save-check-icon line {
+    animation: none;
   }
 }

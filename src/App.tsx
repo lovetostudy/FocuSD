@@ -46,6 +46,7 @@ type TodoArchive = {
 };
 
 type SaveState = "idle" | "saving" | "saved" | "needs-path" | "error";
+type SavePathState = "idle" | "saved";
 
 type SaveTodoResult = {
   filePath: string;
@@ -61,9 +62,11 @@ type IslandShellProps = {
   mode: IslandMode;
   editor: EditorMode;
   activeTaskTitle: string | null;
+  pendingTodoCount: number;
   onToggle: () => void;
   onCollapse: () => void;
   onMinimize: () => void;
+  onTemporarilyHide: () => void;
   onEditorChange: (editor: EditorMode) => void;
   children: ReactNode;
 };
@@ -77,7 +80,10 @@ const TODO_SAVE_DIRECTORY_STORAGE_KEY = "focusd-island-save-directory";
 const TODO_LAST_SAVED_SIGNATURE_STORAGE_KEY =
   "focusd-island-last-saved-signature";
 const BASE_EXPANDED_ISLAND_HEIGHT = 306;
+const EDITOR_EXPANDED_ISLAND_HEIGHT = 340;
 const TODO_ROW_HEIGHT = 46;
+const TODO_TITLE_CHARACTERS_PER_LINE = 32;
+const TODO_MAX_ESTIMATED_TITLE_LINES = 5;
 const TODO_GROW_START_ROWS = 2;
 const TODO_SCROLL_START_ROWS = 6;
 const DEFAULT_SETTINGS: IslandSettings = {
@@ -88,6 +94,26 @@ const DEFAULT_SETTINGS: IslandSettings = {
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
+
+function getTodoTitleLineCount(title: string) {
+  const visualLength = Array.from(title).reduce(
+    (total, character) => total + (character.charCodeAt(0) > 255 ? 1.6 : 1),
+    0,
+  );
+
+  return clamp(
+    Math.ceil(visualLength / TODO_TITLE_CHARACTERS_PER_LINE),
+    1,
+    TODO_MAX_ESTIMATED_TITLE_LINES,
+  );
+}
+
+function getTodoVisualRows(todoList: TodoItem[]) {
+  return todoList.reduce(
+    (total, todo) => total + getTodoTitleLineCount(todo.title),
+    0,
+  );
+}
 
 function loadSettings(): IslandSettings {
   const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -245,9 +271,11 @@ function IslandShell({
   mode,
   editor,
   activeTaskTitle,
+  pendingTodoCount,
   onToggle,
   onCollapse,
   onMinimize,
+  onTemporarilyHide,
   onEditorChange,
   children,
 }: IslandShellProps) {
@@ -273,17 +301,24 @@ function IslandShell({
     >
       <div className="island__collapsed" aria-hidden={isExpanded}>
         <span className="island__pulse" />
+        <span className="island__brand">FocuSD</span>
         {activeTaskTitle ? (
-          <>
-            <span className="island__active-task">{activeTaskTitle}</span>
-            <span className="island__status">Focus</span>
-          </>
+          <span className="island__active-task">{activeTaskTitle}</span>
         ) : (
-          <>
-            <span className="island__brand">FocuSD</span>
-            <span className="island__status">Ready</span>
-          </>
+          <span className="island__todo-count">
+            · 剩余{pendingTodoCount}个待办
+          </span>
         )}
+        <button
+          className="island__quiet-button"
+          type="button"
+          title="暂时隐藏 5 秒"
+          aria-label="暂时隐藏岛屿 5 秒"
+          onClick={(event) => {
+            event.stopPropagation();
+            onTemporarilyHide();
+          }}
+        />
       </div>
 
       <div className="island__expanded" aria-hidden={!isExpanded}>
@@ -294,46 +329,39 @@ function IslandShell({
           </div>
 
           <div
-            className="island__header-center"
-            role="button"
-            tabIndex={0}
-            title="收起岛屿"
-            aria-label="收起岛屿"
-            onClick={onCollapse}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onCollapse();
-              }
-            }}
+            className="editor-dots"
+            aria-label="岛屿编辑"
           >
-            <div className="editor-dots" aria-label="岛屿编辑">
-              <button
-                className={`dot-button dot-button--todo ${
-                  editor === null ? "dot-button--active" : ""
-                }`}
-                type="button"
-                title="任务清单"
-                aria-label="任务清单"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onEditorChange(null);
-                }}
-              />
-              <button
-                className={`dot-button dot-button--layout ${
-                  editor === "layout" ? "dot-button--active" : ""
-                }`}
-                type="button"
-                title="布局编辑"
-                aria-label="布局编辑"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onEditorChange(editor === "layout" ? null : "layout");
-                }}
-              />
-            </div>
+            <button
+              className={`dot-button dot-button--todo ${
+                editor === null ? "dot-button--active" : ""
+              }`}
+              type="button"
+              title="任务清单"
+              aria-label="任务清单"
+              onClick={(event) => {
+                event.stopPropagation();
+                onEditorChange(null);
+              }}
+            />
+            <button
+              className={`dot-button dot-button--layout ${
+                editor === "layout" ? "dot-button--active" : ""
+              }`}
+              type="button"
+              title="布局编辑"
+              aria-label="布局编辑"
+              onClick={(event) => {
+                event.stopPropagation();
+                onEditorChange(editor === "layout" ? null : "layout");
+              }}
+            />
           </div>
+
+          <div
+            className="island__collapse-target"
+            onClick={onCollapse}
+          />
 
           <div className="window-actions">
             <button
@@ -409,6 +437,7 @@ function SliderControl({
 function LayoutEditor({
   settings,
   saveDirectoryDraft,
+  savePathState,
   onSettingsChange,
   onReset,
   onSaveDirectoryDraftChange,
@@ -416,6 +445,7 @@ function LayoutEditor({
 }: {
   settings: IslandSettings;
   saveDirectoryDraft: string;
+  savePathState: SavePathState;
   onSettingsChange: (settings: IslandSettings) => void;
   onReset: () => void;
   onSaveDirectoryDraftChange: (value: string) => void;
@@ -480,12 +510,26 @@ function LayoutEditor({
             />
           </label>
           <button
-            className="save-path-button"
+            className={[
+              "save-path-button",
+              savePathState === "saved" ? "save-path-button--saved" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             type="button"
             onClick={onSaveDirectory}
           >
-            <Save size={14} strokeWidth={2.2} />
-            <span>保存</span>
+            {savePathState === "saved" ? (
+              <>
+                <Check className="save-check-icon" size={15} strokeWidth={2.6} />
+                <span>已保存</span>
+              </>
+            ) : (
+              <>
+                <Save size={14} strokeWidth={2.2} />
+                <span>保存</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -583,7 +627,11 @@ function TodoNotebook({
           title="Save today's todo list"
           aria-label="Save today's todo list as markdown"
           onClick={onSaveToday}
-        />
+        >
+          {saveState === "saved" && (
+            <Check className="save-check-icon" size={12} strokeWidth={3} />
+          )}
+        </button>
         <button
           className={[
             "todo-spine-button",
@@ -667,6 +715,7 @@ function TodoNotebook({
             displayedTodos.map((todo) => {
               const isActive =
                 isTodayMode && todo.id === activeTodoId && !todo.completed;
+              const titleLineCount = getTodoTitleLineCount(todo.title);
 
               return (
                 <div
@@ -680,6 +729,11 @@ function TodoNotebook({
                     .join(" ")}
                   key={todo.id}
                   role="listitem"
+                  style={
+                    {
+                      "--todo-title-min-height": `${titleLineCount * 19}px`,
+                    } as CSSProperties
+                  }
                 >
                   <button
                     className="todo-check"
@@ -700,13 +754,13 @@ function TodoNotebook({
                       <button
                         className="todo-start"
                         type="button"
-                        title="开始"
-                        aria-label={`开始：${todo.title}`}
+                        title={isActive ? "结束" : "开始"}
+                        aria-label={`${isActive ? "结束" : "开始"}：${todo.title}`}
                         disabled={todo.completed}
                         onClick={() => onStartTodo(todo.id)}
                       >
                         <Play size={13} strokeWidth={2.4} />
-                        <span>开始</span>
+                        <span>{isActive ? "结束" : "开始"}</span>
                       </button>
                       <button
                         className="todo-delete"
@@ -813,6 +867,7 @@ function App() {
   const [saveDirectoryDraft, setSaveDirectoryDraft] =
     useState(loadSaveDirectory);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [savePathState, setSavePathState] = useState<SavePathState>("idle");
   const didCheckDate = useRef(false);
   const selectedArchive =
     archives.find((archive) => archive.date === selectedArchiveDate) ?? null;
@@ -821,8 +876,8 @@ function App() {
       todoPageMode === "archive"
         ? archives.length
         : todoPageMode === "review"
-          ? selectedArchive?.todos.length ?? 1
-          : todos.length,
+          ? getTodoVisualRows(selectedArchive?.todos ?? [])
+          : getTodoVisualRows(todos),
       1,
     ),
     TODO_SCROLL_START_ROWS,
@@ -831,7 +886,7 @@ function App() {
     editor === null
       ? BASE_EXPANDED_ISLAND_HEIGHT +
         Math.max(0, visibleTodoRows - TODO_GROW_START_ROWS) * TODO_ROW_HEIGHT
-      : BASE_EXPANDED_ISLAND_HEIGHT;
+      : EDITOR_EXPANDED_ISLAND_HEIGHT;
   const layoutSync = useRef<{
     frame: number | null;
     inFlight: boolean;
@@ -935,6 +990,14 @@ function App() {
     }
   }, []);
 
+  const temporarilyHideIsland = useCallback(async () => {
+    try {
+      await invoke("temporarily_hide_island");
+    } catch (error) {
+      console.error("Failed to temporarily hide island", error);
+    }
+  }, []);
+
   const setIslandMode = useCallback((nextMode: IslandMode) => {
     setMode(nextMode);
 
@@ -987,10 +1050,15 @@ function App() {
         return;
       }
 
+      if (activeTodoId === id) {
+        setActiveTodoId(null);
+        return;
+      }
+
       setActiveTodoId(id);
       setIslandMode("collapsed");
     },
-    [setIslandMode, todos],
+    [activeTodoId, setIslandMode, todos],
   );
 
   const deleteTodo = useCallback((id: string) => {
@@ -1073,6 +1141,8 @@ function App() {
     setSaveDirectory(nextDirectory);
     setSaveDirectoryDraft(nextDirectory);
     setSaveState("idle");
+    setSavePathState("saved");
+    window.setTimeout(() => setSavePathState("idle"), 1200);
   }, [saveDirectoryDraft]);
 
   const showArchive = useCallback(() => {
@@ -1087,11 +1157,19 @@ function App() {
     setDraftTodo("");
   }, []);
 
-  const selectArchive = useCallback((date: string) => {
-    setSelectedArchiveDate(date);
-    setTodoPageMode("review");
-    setDraftTodo("");
-  }, []);
+  const selectArchive = useCallback(
+    (date: string) => {
+      if (date === currentTodoDate) {
+        showToday();
+        return;
+      }
+
+      setSelectedArchiveDate(date);
+      setTodoPageMode("review");
+      setDraftTodo("");
+    },
+    [currentTodoDate, showToday],
+  );
 
   const rolloverToToday = useCallback(
     async (nextDate: string) => {
@@ -1226,6 +1304,10 @@ function App() {
 
     return activeTodo?.title ?? null;
   }, [activeTodoId, todos]);
+  const openTodoCount = useMemo(
+    () => todos.filter((todo) => !todo.completed).length,
+    [todos],
+  );
 
   return (
     <main className="stage" style={stageStyle}>
@@ -1233,15 +1315,18 @@ function App() {
         mode={mode}
         editor={editor}
         activeTaskTitle={activeTaskTitle}
+        pendingTodoCount={openTodoCount}
         onToggle={toggleIsland}
         onCollapse={collapseIsland}
         onMinimize={minimizeIsland}
+        onTemporarilyHide={temporarilyHideIsland}
         onEditorChange={setEditor}
       >
         {editor === "layout" && (
           <LayoutEditor
             settings={settings}
             saveDirectoryDraft={saveDirectoryDraft}
+            savePathState={savePathState}
             onSettingsChange={setSettings}
             onReset={resetSettings}
             onSaveDirectoryDraftChange={setSaveDirectoryDraft}
