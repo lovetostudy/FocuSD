@@ -59,10 +59,12 @@ type IslandSettings = {
   opacity: number;
   sizeScale: number;
   marginY: number;
-  taskTitleColor: string;
-  pendingTodoColor: string;
+  taskTextColor: string;
+  pulseColor: string;
+  pulseBrightness: number;
   islandBackgroundColor: string;
   todoBackgroundColor: string;
+  showTitle: boolean;
 };
 
 type IslandPreset = {
@@ -77,6 +79,7 @@ type IslandShellProps = {
   mode: IslandMode;
   editor: EditorMode;
   isTucked: boolean;
+  showTitle: boolean;
   activeTaskTitle: string | null;
   pendingTodoCount: number;
   onToggle: () => void;
@@ -106,36 +109,26 @@ const TODO_MAX_ESTIMATED_TITLE_LINES = 5;
 const TODO_GROW_START_ROWS = 2;
 const TODO_SCROLL_START_ROWS = 6;
 const MAX_CUSTOM_SETTING_PRESETS = 6;
-const WHITE_PRESET_SETTINGS: IslandSettings = {
+const DEFAULT_TASK_TEXT_COLOR = "#1afbff";
+const DEFAULT_SETTINGS: IslandSettings = {
   opacity: 95,
   sizeScale: 1,
   marginY: 31,
-  taskTitleColor: "#66ffb8",
-  pendingTodoColor: "#1afbff",
+  taskTextColor: DEFAULT_TASK_TEXT_COLOR,
+  pulseColor: "#49e18f",
+  pulseBrightness: 100,
   islandBackgroundColor: "#101013",
   todoBackgroundColor: "#ffffff",
+  showTitle: true,
 };
-const KHAKI_PRESET_SETTINGS: IslandSettings = {
-  ...WHITE_PRESET_SETTINGS,
-  todoBackgroundColor: "#f8f4e9",
+const LEGACY_DEFAULT_PRESET_IDS = new Set(["default-white", "default-khaki"]);
+const LEGACY_DEFAULT_PRESET_NAMES = new Set(["白色", "卡其"]);
+
+type LegacyIslandSettings = Partial<IslandSettings> & {
+  margin?: number;
+  taskTitleColor?: string;
+  pendingTodoColor?: string;
 };
-const DEFAULT_SETTINGS: IslandSettings = WHITE_PRESET_SETTINGS;
-const DEFAULT_SETTING_PRESETS: IslandPreset[] = [
-  {
-    id: "default-white",
-    name: "白色",
-    settings: WHITE_PRESET_SETTINGS,
-    createdAt: 0,
-    isDefault: true,
-  },
-  {
-    id: "default-khaki",
-    name: "卡其",
-    settings: KHAKI_PRESET_SETTINGS,
-    createdAt: 0,
-    isDefault: true,
-  },
-];
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -148,9 +141,25 @@ function getColorSetting(value: unknown, fallback: string) {
     : fallback;
 }
 
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = HEX_COLOR_PATTERN.test(hex)
+    ? hex.slice(1)
+    : DEFAULT_SETTINGS.pulseColor.slice(1);
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 function normalizeSettings(
-  settings: (Partial<IslandSettings> & { margin?: number }) | null | undefined,
+  settings: LegacyIslandSettings | null | undefined,
 ): IslandSettings {
+  const taskTextColor = getColorSetting(
+    settings?.taskTextColor ?? settings?.pendingTodoColor,
+    getColorSetting(settings?.taskTitleColor, DEFAULT_SETTINGS.taskTextColor),
+  );
+
   return {
     opacity: clamp(Number(settings?.opacity ?? DEFAULT_SETTINGS.opacity), 50, 100),
     sizeScale: clamp(
@@ -163,13 +172,15 @@ function normalizeSettings(
       0,
       160,
     ),
-    taskTitleColor: getColorSetting(
-      settings?.taskTitleColor,
-      DEFAULT_SETTINGS.taskTitleColor,
+    taskTextColor,
+    pulseColor: getColorSetting(
+      settings?.pulseColor,
+      DEFAULT_SETTINGS.pulseColor,
     ),
-    pendingTodoColor: getColorSetting(
-      settings?.pendingTodoColor,
-      DEFAULT_SETTINGS.pendingTodoColor,
+    pulseBrightness: clamp(
+      Number(settings?.pulseBrightness ?? DEFAULT_SETTINGS.pulseBrightness),
+      50,
+      160,
     ),
     islandBackgroundColor: getColorSetting(
       settings?.islandBackgroundColor,
@@ -179,24 +190,25 @@ function normalizeSettings(
       settings?.todoBackgroundColor,
       DEFAULT_SETTINGS.todoBackgroundColor,
     ),
+    showTitle:
+      typeof settings?.showTitle === "boolean"
+        ? settings.showTitle
+        : DEFAULT_SETTINGS.showTitle,
   };
 }
 
 function getDefaultSettingPresets(): IslandPreset[] {
-  return DEFAULT_SETTING_PRESETS.map((preset) => ({
-    ...preset,
-    settings: { ...preset.settings },
-  }));
+  return [];
 }
 
 function mergeWithDefaultSettingPresets(presets: IslandPreset[]) {
   const defaultPresets = getDefaultSettingPresets();
-  const defaultIds = new Set(defaultPresets.map((preset) => preset.id));
-  const defaultNames = new Set(defaultPresets.map((preset) => preset.name));
   const customPresets = presets
     .filter(
       (preset) =>
-        !defaultIds.has(preset.id) && !defaultNames.has(preset.name.trim()),
+        !preset.isDefault &&
+        !LEGACY_DEFAULT_PRESET_IDS.has(preset.id) &&
+        !LEGACY_DEFAULT_PRESET_NAMES.has(preset.name.trim()),
     )
     .map((preset) => ({ ...preset, isDefault: false }))
     .slice(0, MAX_CUSTOM_SETTING_PRESETS);
@@ -205,7 +217,7 @@ function mergeWithDefaultSettingPresets(presets: IslandPreset[]) {
 }
 
 function isDefaultSettingPreset(presetId: string) {
-  return DEFAULT_SETTING_PRESETS.some((preset) => preset.id === presetId);
+  return LEGACY_DEFAULT_PRESET_IDS.has(presetId);
 }
 
 function getTodoTitleLineCount(title: string) {
@@ -434,6 +446,7 @@ function IslandShell({
   mode,
   editor,
   isTucked,
+  showTitle,
   activeTaskTitle,
   pendingTodoCount,
   onToggle,
@@ -449,7 +462,10 @@ function IslandShell({
     "island",
     `island--${mode}`,
     editor === null ? "island--todo" : "island--editor",
-  ].join(" ");
+    showTitle ? "" : "island--title-hidden",
+  ]
+    .filter(Boolean)
+    .join(" ");
   const collapsedLabel = activeTaskTitle
     ? `正在专注：${activeTaskTitle}`
     : "FocuSD Island";
@@ -471,12 +487,16 @@ function IslandShell({
     >
       <div className="island__collapsed" aria-hidden={isExpanded}>
         <span className="island__pulse" />
-        <span className="island__brand">FocuSD</span>
+        {showTitle && <span className="island__brand">FocuSD</span>}
         {activeTaskTitle ? (
-          <span className="island__active-task">· {activeTaskTitle}</span>
+          <span className="island__active-task">
+            {showTitle ? "· " : ""}
+            {activeTaskTitle}
+          </span>
         ) : (
           <span className="island__todo-count">
-            · 剩余{pendingTodoCount}个待办
+            {showTitle ? "· " : ""}
+            剩余{pendingTodoCount}个待办
           </span>
         )}
         <button
@@ -771,6 +791,11 @@ function LayoutEditor({
         checked={launchAtStartup}
         onChange={onLaunchAtStartupChange}
       />
+      <ToggleControl
+        label="展示“title”"
+        checked={settings.showTitle}
+        onChange={(showTitle) => onSettingsChange({ ...settings, showTitle })}
+      />
 
       <div className="color-panel">
         <div className="color-panel__header">
@@ -778,17 +803,17 @@ function LayoutEditor({
         </div>
         <div className="color-grid">
           <ColorControl
-            label="任务名颜色"
-            value={settings.taskTitleColor}
-            onChange={(taskTitleColor) =>
-              onSettingsChange({ ...settings, taskTitleColor })
+            label="任务/待办字样"
+            value={settings.taskTextColor}
+            onChange={(taskTextColor) =>
+              onSettingsChange({ ...settings, taskTextColor })
             }
           />
           <ColorControl
-            label="剩余待办"
-            value={settings.pendingTodoColor}
-            onChange={(pendingTodoColor) =>
-              onSettingsChange({ ...settings, pendingTodoColor })
+            label="亮点颜色"
+            value={settings.pulseColor}
+            onChange={(pulseColor) =>
+              onSettingsChange({ ...settings, pulseColor })
             }
           />
           <ColorControl
@@ -807,6 +832,17 @@ function LayoutEditor({
           />
         </div>
       </div>
+      <SliderControl
+        label="亮点亮度"
+        value={settings.pulseBrightness}
+        min={50}
+        max={160}
+        step={1}
+        suffix="%"
+        onChange={(pulseBrightness) =>
+          onSettingsChange({ ...settings, pulseBrightness })
+        }
+      />
 
       <div className="preset-panel">
         <div className="preset-panel__header">
@@ -1472,8 +1508,10 @@ function App() {
         "--island-opacity": settings.opacity / 100,
         "--island-scale": settings.sizeScale,
         "--expanded-island-height": `${expandedIslandHeight}px`,
-        "--active-task-color": settings.taskTitleColor,
-        "--pending-todo-color": settings.pendingTodoColor,
+        "--task-text-color": settings.taskTextColor,
+        "--island-pulse-color": settings.pulseColor,
+        "--island-pulse-glow-color": hexToRgba(settings.pulseColor, 0.72),
+        "--island-pulse-brightness": `${settings.pulseBrightness}%`,
         "--island-background-color": settings.islandBackgroundColor,
         "--todo-background-color": settings.todoBackgroundColor,
       }) as CSSProperties,
@@ -1481,9 +1519,10 @@ function App() {
       expandedIslandHeight,
       settings.islandBackgroundColor,
       settings.opacity,
-      settings.pendingTodoColor,
+      settings.pulseBrightness,
+      settings.pulseColor,
       settings.sizeScale,
-      settings.taskTitleColor,
+      settings.taskTextColor,
       settings.todoBackgroundColor,
     ],
   );
@@ -1863,7 +1902,7 @@ function App() {
     if (
       !nextName ||
       isDefaultSettingPreset(presetId) ||
-      DEFAULT_SETTING_PRESETS.some((preset) => preset.name === nextName)
+      LEGACY_DEFAULT_PRESET_NAMES.has(nextName)
     ) {
       return;
     }
@@ -2043,6 +2082,7 @@ function App() {
         mode={mode}
         editor={editor}
         isTucked={isTucked}
+        showTitle={settings.showTitle}
         activeTaskTitle={activeTaskTitle}
         pendingTodoCount={openTodoCount}
         onToggle={toggleIsland}

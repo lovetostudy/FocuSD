@@ -41,8 +41,10 @@ input {
 .stage {
   --island-opacity: 0.92;
   --island-scale: 1;
-  --active-task-color: #66ffb8;
-  --pending-todo-color: #a8d8ea;
+  --task-text-color: #1afbff;
+  --island-pulse-color: #49e18f;
+  --island-pulse-glow-color: rgba(73, 225, 143, 0.72);
+  --island-pulse-brightness: 100%;
   --island-background-color: #101013;
   --todo-background-color: #f8f4e9;
   width: 100vw;
@@ -136,8 +138,13 @@ input {
   height: 12px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: #49e18f;
-  box-shadow: 0 0 14px rgba(73, 225, 143, 0.72);
+  background: var(--island-pulse-color);
+  box-shadow: 0 0 14px var(--island-pulse-glow-color);
+  filter: brightness(var(--island-pulse-brightness));
+}
+
+.island--title-hidden .island__collapsed {
+  gap: 10px;
 }
 
 .island__brand {
@@ -150,7 +157,7 @@ input {
 .island__todo-count {
   min-width: 0;
   overflow: hidden;
-  color: var(--pending-todo-color);
+  color: var(--task-text-color);
   font-size: 14px;
   font-weight: 700;
   line-height: 1;
@@ -162,7 +169,7 @@ input {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: var(--active-task-color);
+  color: var(--task-text-color);
   font-size: 15px;
   font-weight: 700;
   line-height: 1.05;
