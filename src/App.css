@@ -156,6 +156,7 @@ input {
 
 .island__todo-count {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   color: var(--task-text-color);
   font-size: 14px;
@@ -183,7 +184,7 @@ input {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  margin-left: auto;
+  margin-left: 0;
   padding: 0;
   background: rgba(186, 186, 186, 0.38);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -210,6 +211,58 @@ input {
   outline-offset: 4px;
 }
 
+.music-wave-button {
+  width: 36px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex: 0 0 36px;
+  padding: 0;
+  color: #aef5d0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    color 140ms ease,
+    opacity 140ms ease;
+}
+
+.music-wave-button span {
+  width: 3px;
+  height: 13px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: var(--wave-opacity, 0.72);
+  transform: scaleY(var(--wave-scale, 0.35));
+  transform-origin: 50% 50%;
+  transition:
+    opacity 90ms linear,
+    transform 90ms linear;
+}
+
+.music-wave-button:hover {
+  color: #c7ffdf;
+}
+
+.music-wave-button:focus-visible {
+  outline: 2px solid rgba(174, 245, 208, 0.72);
+  outline-offset: 4px;
+}
+
+.music-wave-button--playing {
+  filter: drop-shadow(0 0 7px rgba(73, 225, 143, 0.26));
+}
+
+.music-wave-button--idle {
+  color: rgba(248, 246, 240, 0.5);
+}
+
 .island__expanded {
   display: flex;
   flex-direction: column;
@@ -229,7 +282,7 @@ input {
 
 .island__header {
   display: grid;
-  grid-template-columns: auto 48px minmax(0, 1fr) auto;
+  grid-template-columns: auto 72px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 34px;
@@ -264,7 +317,7 @@ input {
   align-items: center;
   justify-self: start;
   gap: 9px;
-  width: 48px;
+  width: 72px;
   height: 34px;
   padding-left: 4px;
 }
@@ -312,10 +365,27 @@ input {
   box-shadow: 0 0 12px rgba(116, 214, 255, 0.48);
 }
 
+.dot-button--music {
+  background: #7de8b4;
+  box-shadow: 0 0 12px rgba(125, 232, 180, 0.42);
+}
+
 .dot-button--active {
   box-shadow:
     0 0 0 3px rgba(255, 255, 255, 0.18),
     0 0 14px rgba(116, 214, 255, 0.42);
+}
+
+.dot-button--music.dot-button--active {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.18),
+    0 0 14px rgba(125, 232, 180, 0.52);
+}
+
+.dot-button--layout.dot-button--active {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.18),
+    0 0 14px rgba(133, 133, 133, 0.46);
 }
 
 .island--todo .icon-button {
@@ -374,10 +444,149 @@ input {
 }
 
 .todo-notebook,
+.music-player,
 .editor-panel {
   height: 100%;
   border-radius: 22px;
   border: 0;
+}
+
+.music-player {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  overflow: hidden;
+  padding: 20px 24px 22px;
+  color: #f7fbf7;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(125, 232, 180, 0.16), transparent 32%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.045)),
+    rgba(9, 13, 14, 0.82);
+  box-shadow:
+    0 16px 32px rgba(0, 0, 0, 0.24),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+
+.music-player--empty {
+  color: rgba(247, 251, 247, 0.78);
+}
+
+.music-player__signal {
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.music-player__status {
+  width: min(100%, 330px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(247, 251, 247, 0.58);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.music-player__status strong {
+  color: rgba(185, 255, 217, 0.94);
+  font-size: 13px;
+}
+
+.music-player__wave {
+  width: min(100%, 360px);
+  height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 10px;
+}
+
+.music-player__wave span {
+  width: 12px;
+  height: 74px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(116, 214, 255, 0.98), rgba(157, 246, 194, 0.98));
+  box-shadow:
+    0 0 18px rgba(125, 232, 180, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  opacity: var(--wave-opacity, 0.44);
+  transform: scaleY(var(--wave-scale, 0.18));
+  transform-origin: 50% 50%;
+  transition:
+    opacity 80ms linear,
+    transform 80ms linear;
+}
+
+.music-player--empty .music-player__wave span {
+  background: rgba(247, 251, 247, 0.28);
+  box-shadow: none;
+}
+
+.music-player__controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.music-control-button {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: rgba(247, 251, 247, 0.82);
+  background: rgba(255, 255, 255, 0.09);
+  border: 0;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease,
+    opacity 140ms ease;
+}
+
+.music-control-button:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.music-control-button:focus-visible {
+  outline: 2px solid rgba(174, 245, 208, 0.74);
+  outline-offset: 3px;
+}
+
+.music-control-button--primary {
+  width: 44px;
+  height: 44px;
+  color: #04100a;
+  background: #9ff0c5;
+  box-shadow: 0 0 20px rgba(125, 232, 180, 0.24);
+}
+
+.music-control-button--primary:hover:not(:disabled) {
+  color: #04100a;
+  background: #b9ffd9;
+}
+
+.music-control-button:disabled {
+  cursor: default;
+  opacity: 0.36;
 }
 
 .todo-notebook {
@@ -1765,6 +1974,8 @@ input {
   .dot-button,
   .icon-button,
   .island__quiet-button,
+  .music-wave-button,
+  .music-control-button,
   .island__collapse-target,
   .todo-item,
   .todo-start,

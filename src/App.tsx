@@ -16,10 +16,13 @@ import {
   Columns2,
   Minus,
   NotebookPen,
+  Pause,
   Play,
   Plus,
   RefreshCcw,
   Save,
+  SkipBack,
+  SkipForward,
   Trash2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -28,9 +31,10 @@ import "./App.css";
 
 export type IslandMode = "collapsed" | "expanded";
 
-type EditorMode = "layout" | null;
+type IslandPage = "todo" | "music" | "layout";
 type TodoPageMode = "today" | "daily" | "archive" | "review";
 type ArchiveLayout = "cards" | "timeline";
+type MediaPlaybackStatus = "unavailable" | "playing" | "paused";
 
 type TodoItem = {
   id: string;
@@ -55,6 +59,20 @@ type SaveTodoResult = {
   filePath: string;
 };
 
+type MediaState = {
+  available: boolean;
+  audioActive: boolean;
+  audioPeak: number;
+  playbackStatus: MediaPlaybackStatus;
+  updatedAt: number;
+};
+
+type AudioLevel = {
+  active: boolean;
+  peak: number;
+  updatedAt: number;
+};
+
 type IslandSettings = {
   opacity: number;
   sizeScale: number;
@@ -77,17 +95,18 @@ type IslandPreset = {
 
 type IslandShellProps = {
   mode: IslandMode;
-  editor: EditorMode;
+  page: IslandPage;
   isTucked: boolean;
   showTitle: boolean;
   activeTaskTitle: string | null;
   pendingTodoCount: number;
-  onToggle: () => void;
+  mediaState: MediaState;
+  onOpenPage: (page: IslandPage) => void;
   onCollapse: () => void;
   onMinimize: () => void;
   onTuck: () => void;
   onReveal: () => void;
-  onEditorChange: (editor: EditorMode) => void;
+  onPageChange: (page: IslandPage) => void;
   children: ReactNode;
 };
 
@@ -102,6 +121,7 @@ const TODO_SAVE_DIRECTORY_STORAGE_KEY = "focusd-island-save-directory";
 const TODO_LAST_SAVED_SIGNATURE_STORAGE_KEY =
   "focusd-island-last-saved-signature";
 const BASE_EXPANDED_ISLAND_HEIGHT = 306;
+const MUSIC_EXPANDED_ISLAND_HEIGHT = 286;
 const EDITOR_EXPANDED_ISLAND_HEIGHT = 430;
 const TODO_ROW_HEIGHT = 46;
 const TODO_TITLE_CHARACTERS_PER_LINE = 32;
@@ -110,6 +130,14 @@ const TODO_GROW_START_ROWS = 2;
 const TODO_SCROLL_START_ROWS = 6;
 const MAX_CUSTOM_SETTING_PRESETS = 6;
 const DEFAULT_TASK_TEXT_COLOR = "#1afbff";
+const AUDIO_ACTIVE_THRESHOLD = 0.000015;
+const DEFAULT_MEDIA_STATE: MediaState = {
+  available: false,
+  audioActive: false,
+  audioPeak: 0,
+  playbackStatus: "unavailable",
+  updatedAt: 0,
+};
 const DEFAULT_SETTINGS: IslandSettings = {
   opacity: 95,
   sizeScale: 1,
@@ -444,24 +472,28 @@ function createTodoId() {
 
 function IslandShell({
   mode,
-  editor,
+  page,
   isTucked,
   showTitle,
   activeTaskTitle,
   pendingTodoCount,
-  onToggle,
+  mediaState,
+  onOpenPage,
   onCollapse,
   onMinimize,
   onTuck,
   onReveal,
-  onEditorChange,
+  onPageChange,
   children,
 }: IslandShellProps) {
   const isExpanded = mode === "expanded";
+  const isMusicPlaying =
+    mediaState.playbackStatus === "playing" ||
+    (mediaState.playbackStatus !== "paused" && mediaState.audioActive);
   const className = [
     "island",
     `island--${mode}`,
-    editor === null ? "island--todo" : "island--editor",
+    `island--${page}`,
     showTitle ? "" : "island--title-hidden",
   ]
     .filter(Boolean)
@@ -476,7 +508,7 @@ function IslandShell({
       aria-label={collapsedLabel}
       onClick={() => {
         if (!isExpanded) {
-          onToggle();
+          onOpenPage("todo");
         }
       }}
       onMouseEnter={() => {
@@ -499,6 +531,13 @@ function IslandShell({
             剩余{pendingTodoCount}个待办
           </span>
         )}
+        <MusicWaveButton
+          isAvailable={mediaState.available || mediaState.audioActive}
+          isPlaying={isMusicPlaying}
+          audioPeak={mediaState.audioPeak}
+          label="打开音乐控制"
+          onClick={() => onOpenPage("music")}
+        />
         <button
           className="island__quiet-button"
           type="button"
@@ -524,26 +563,38 @@ function IslandShell({
           >
             <button
               className={`dot-button dot-button--todo ${
-                editor === null ? "dot-button--active" : ""
+                page === "todo" ? "dot-button--active" : ""
               }`}
               type="button"
               title="任务清单"
               aria-label="任务清单"
               onClick={(event) => {
                 event.stopPropagation();
-                onEditorChange(null);
+                onPageChange("todo");
+              }}
+            />
+            <button
+              className={`dot-button dot-button--music ${
+                page === "music" ? "dot-button--active" : ""
+              }`}
+              type="button"
+              title="Music"
+              aria-label="Music"
+              onClick={(event) => {
+                event.stopPropagation();
+                onPageChange("music");
               }}
             />
             <button
               className={`dot-button dot-button--layout ${
-                editor === "layout" ? "dot-button--active" : ""
+                page === "layout" ? "dot-button--active" : ""
               }`}
               type="button"
               title="布局编辑"
               aria-label="布局编辑"
               onClick={(event) => {
                 event.stopPropagation();
-                onEditorChange(editor === "layout" ? null : "layout");
+                onPageChange("layout");
               }}
             />
           </div>
@@ -583,6 +634,91 @@ function IslandShell({
         <div className="island__content">{children}</div>
       </div>
     </section>
+  );
+}
+
+function MusicWaveButton({
+  isAvailable,
+  isPlaying,
+  audioPeak,
+  label,
+  onClick,
+}: {
+  isAvailable: boolean;
+  isPlaying: boolean;
+  audioPeak: number;
+  label: string;
+  onClick: () => void;
+}) {
+  const [phase, setPhase] = useState(0);
+  const className = [
+    "music-wave-button",
+    isAvailable ? "music-wave-button--available" : "music-wave-button--idle",
+    isPlaying ? "music-wave-button--playing" : "music-wave-button--paused",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const shouldAnimate = isAvailable || isPlaying;
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  useEffect(() => {
+    if (!shouldAnimate) {
+      setPhase(0);
+      return;
+    }
+
+    const interval = window.setInterval(
+      () => {
+        setPhase(performance.now() / (isPlaying ? 260 : 900));
+      },
+      prefersReducedMotion ? 420 : isPlaying ? 72 : 180,
+    );
+
+    return () => window.clearInterval(interval);
+  }, [isPlaying, prefersReducedMotion, shouldAnimate]);
+
+  const liftedPeak = isPlaying
+    ? clamp(Math.log1p(clamp(audioPeak, 0, 1) * 150) / Math.log1p(150), 0, 1)
+    : 0;
+  const barScales = [0.34, 0.72, 0.48, 0.86, 0.42].map((bar, index) => {
+    const floor = isAvailable ? 0.22 : 0.12;
+    const breath =
+      shouldAnimate && !prefersReducedMotion
+        ? 0.07 + Math.sin(phase + index * 0.82) * 0.045
+        : 0;
+    const movement =
+      liftedPeak *
+      (0.26 + bar * 1.02) *
+      (0.82 + Math.sin(phase * (1.15 + index * 0.08) + index * 1.7) * 0.24);
+
+    return clamp(floor + breath + movement, 0.12, 1.22);
+  });
+
+  return (
+    <button
+      className={className}
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      {barScales.map((scale, index) => (
+        <span
+          key={index}
+          style={
+            {
+              "--wave-scale": scale.toFixed(3),
+              "--wave-opacity": (0.42 + scale * 0.52).toFixed(3),
+            } as CSSProperties
+          }
+        />
+      ))}
+    </button>
   );
 }
 
@@ -1442,10 +1578,165 @@ function ArchiveBrowser({
   );
 }
 
+function MusicPlayerPanel({
+  mediaState,
+  onPlayPause,
+  onNext,
+  onPrevious,
+}: {
+  mediaState: MediaState;
+  onPlayPause: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+}) {
+  const isPlaying =
+    mediaState.playbackStatus === "playing" ||
+    (mediaState.playbackStatus !== "paused" && mediaState.audioActive);
+  const isPaused = mediaState.playbackStatus === "paused";
+  const hasAudioSignal = mediaState.available || mediaState.audioActive;
+  const statusLabel = isPaused
+    ? "Paused"
+    : hasAudioSignal
+      ? "Audio active"
+      : "No signal";
+  const peakPercent = Math.round(
+    clamp(Math.log1p(mediaState.audioPeak * 160) / Math.log1p(160), 0, 1) *
+      100,
+  );
+
+  return (
+    <section
+      className={[
+        "music-player",
+        hasAudioSignal ? "" : "music-player--empty",
+        isPaused ? "music-player--paused" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      aria-label="Music player"
+    >
+      <div className="music-player__signal">
+        <div className="music-player__status">
+          <span>{statusLabel}</span>
+          <strong>{peakPercent}%</strong>
+        </div>
+        <MusicLevelWave
+          isAvailable={hasAudioSignal}
+          isPlaying={isPlaying}
+          audioPeak={mediaState.audioPeak}
+        />
+      </div>
+
+      <div className="music-player__controls">
+        <button
+          className="music-control-button"
+          type="button"
+          title="Previous"
+          aria-label="Previous track"
+          onClick={onPrevious}
+        >
+          <SkipBack size={18} strokeWidth={2.4} />
+        </button>
+        <button
+          className="music-control-button music-control-button--primary"
+          type="button"
+          title={isPlaying ? "Pause" : "Play"}
+          aria-label={isPlaying ? "Pause" : "Play"}
+          onClick={onPlayPause}
+        >
+          {isPlaying ? (
+            <Pause size={20} strokeWidth={2.5} />
+          ) : (
+            <Play size={20} strokeWidth={2.5} />
+          )}
+        </button>
+        <button
+          className="music-control-button"
+          type="button"
+          title="Next"
+          aria-label="Next track"
+          onClick={onNext}
+        >
+          <SkipForward size={18} strokeWidth={2.4} />
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function MusicLevelWave({
+  isAvailable,
+  isPlaying,
+  audioPeak,
+}: {
+  isAvailable: boolean;
+  isPlaying: boolean;
+  audioPeak: number;
+}) {
+  const [phase, setPhase] = useState(0);
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  useEffect(() => {
+    if (!isAvailable && !isPlaying) {
+      setPhase(0);
+      return;
+    }
+
+    const interval = window.setInterval(
+      () => {
+        setPhase(performance.now() / (isPlaying ? 210 : 760));
+      },
+      prefersReducedMotion ? 460 : isPlaying ? 58 : 150,
+    );
+
+    return () => window.clearInterval(interval);
+  }, [isAvailable, isPlaying, prefersReducedMotion]);
+
+  const liftedPeak = isPlaying
+    ? clamp(Math.log1p(clamp(audioPeak, 0, 1) * 185) / Math.log1p(185), 0, 1)
+    : 0;
+  const bars = [0.22, 0.48, 0.78, 0.54, 0.92, 0.68, 0.4, 0.72, 0.34].map(
+    (bar, index) => {
+      const floor = isAvailable ? 0.2 : 0.1;
+      const breath =
+        isAvailable && !prefersReducedMotion
+          ? 0.06 + Math.sin(phase + index * 0.72) * 0.045
+          : 0;
+      const movement =
+        liftedPeak *
+        (0.34 + bar * 1.06) *
+        (0.78 + Math.sin(phase * (1.05 + index * 0.05) + index * 1.35) * 0.28);
+
+      return clamp(floor + breath + movement, 0.1, 1.08);
+    },
+  );
+
+  return (
+    <div className="music-player__wave" aria-hidden="true">
+      {bars.map((scale, index) => (
+        <span
+          key={index}
+          style={
+            {
+              "--wave-scale": scale.toFixed(3),
+              "--wave-opacity": (0.3 + scale * 0.68).toFixed(3),
+            } as CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
 function App() {
   const [mode, setMode] = useState<IslandMode>("collapsed");
   const [isTucked, setIsTucked] = useState(false);
-  const [editor, setEditor] = useState<EditorMode>(null);
+  const [page, setPage] = useState<IslandPage>("todo");
+  const [mediaState, setMediaState] =
+    useState<MediaState>(DEFAULT_MEDIA_STATE);
+  const mediaStatusLockUntil = useRef(0);
   const [settings, setSettings] = useState<IslandSettings>(loadSettings);
   const [launchAtStartup, setLaunchAtStartup] = useState(false);
   const [settingPresets, setSettingPresets] =
@@ -1486,10 +1777,12 @@ function App() {
     TODO_SCROLL_START_ROWS,
   );
   const expandedIslandHeight =
-    editor === null
+    page === "todo"
       ? BASE_EXPANDED_ISLAND_HEIGHT +
         Math.max(0, visibleTodoRows - TODO_GROW_START_ROWS) * TODO_ROW_HEIGHT
-      : EDITOR_EXPANDED_ISLAND_HEIGHT;
+      : page === "music"
+        ? MUSIC_EXPANDED_ISLAND_HEIGHT
+        : EDITOR_EXPANDED_ISLAND_HEIGHT;
   const layoutSync = useRef<{
     frame: number | null;
     inFlight: boolean;
@@ -1615,7 +1908,7 @@ function App() {
     setIsTucked(false);
 
     if (nextMode === "collapsed") {
-      setEditor(null);
+      setPage("todo");
     }
   }, []);
 
@@ -1628,13 +1921,146 @@ function App() {
     setIsTucked(false);
   }, []);
 
-  const toggleIsland = useCallback(() => {
-    setIslandMode(mode === "collapsed" ? "expanded" : "collapsed");
-  }, [mode, setIslandMode]);
+  const openIslandPage = useCallback((nextPage: IslandPage) => {
+    setPage(nextPage);
+    setMode("expanded");
+    setIsTucked(false);
+  }, []);
 
   const collapseIsland = useCallback(() => {
     setIslandMode("collapsed");
   }, [setIslandMode]);
+
+  const refreshMediaState = useCallback(async () => {
+    try {
+      const nextMediaState = await invoke<MediaState>("get_media_state");
+
+      setMediaState((currentState) => {
+        const isStatusLocked = Date.now() < mediaStatusLockUntil.current;
+        const nextPeak = Math.max(
+          currentState.audioPeak * 0.82,
+          nextMediaState.audioPeak,
+        );
+        const measuredAudioActive =
+          nextMediaState.audioActive || nextPeak > AUDIO_ACTIVE_THRESHOLD;
+        const audioActive =
+          isStatusLocked && currentState.playbackStatus === "paused"
+            ? false
+            : measuredAudioActive;
+        const playbackStatus = isStatusLocked
+          ? currentState.playbackStatus
+          : audioActive
+            ? "playing"
+            : "unavailable";
+
+        return {
+          ...nextMediaState,
+          audioActive,
+          audioPeak: audioActive ? nextPeak : 0,
+          playbackStatus,
+        };
+      });
+    } catch (error) {
+      console.error("Failed to read media state", error);
+      setMediaState((currentState) => ({
+        ...DEFAULT_MEDIA_STATE,
+        audioActive: currentState.audioActive,
+        audioPeak: currentState.audioPeak * 0.72,
+        playbackStatus: currentState.audioActive ? "playing" : "unavailable",
+      }));
+    }
+  }, []);
+
+  const runMediaCommand = useCallback(
+    async (command: "media_play_pause" | "media_next" | "media_previous") => {
+      if (command === "media_play_pause") {
+        setMediaState((currentState) => {
+          const isCurrentlyPlaying =
+            currentState.playbackStatus === "playing" ||
+            (currentState.playbackStatus !== "paused" &&
+              currentState.audioActive);
+          const nextStatus: MediaPlaybackStatus = isCurrentlyPlaying
+            ? "paused"
+            : "playing";
+          mediaStatusLockUntil.current = Date.now() + 900;
+
+          return {
+            ...currentState,
+            available: nextStatus === "playing" || currentState.available,
+            audioActive: nextStatus === "playing",
+            audioPeak:
+              nextStatus === "playing"
+                ? Math.max(currentState.audioPeak, 0.08)
+                : 0,
+            playbackStatus: nextStatus,
+          };
+        });
+      }
+
+      try {
+        await invoke<void>(command);
+      } catch (error) {
+        console.error(`Failed to run media command: ${command}`, error);
+      }
+      window.setTimeout(() => void refreshMediaState(), 120);
+      window.setTimeout(() => void refreshMediaState(), 980);
+    },
+    [refreshMediaState],
+  );
+
+  useEffect(() => {
+    let didCancel = false;
+
+    const refreshAudioLevel = async () => {
+      try {
+        const audioLevel = await invoke<AudioLevel>("get_audio_level");
+
+        if (didCancel) {
+          return;
+        }
+
+        setMediaState((currentState) => {
+          const isStatusLocked = Date.now() < mediaStatusLockUntil.current;
+          const shouldSuppressAudio =
+            isStatusLocked && currentState.playbackStatus === "paused";
+          const decayedPeak = currentState.audioPeak * 0.82;
+          const nextPeak = audioLevel.active
+            ? Math.max(decayedPeak, audioLevel.peak)
+            : decayedPeak;
+          const audioActive =
+            !shouldSuppressAudio &&
+            (audioLevel.active || nextPeak > AUDIO_ACTIVE_THRESHOLD * 1.5);
+
+          return {
+            ...currentState,
+            audioActive,
+            audioPeak: audioActive ? nextPeak : 0,
+            playbackStatus:
+              isStatusLocked
+                ? currentState.playbackStatus
+                : audioActive
+                  ? "playing"
+                  : currentState.playbackStatus === "paused"
+                    ? "paused"
+                  : "unavailable",
+          };
+        });
+      } catch (error) {
+        console.error("Failed to read audio level", error);
+      }
+    };
+
+    void refreshAudioLevel();
+
+    const interval = window.setInterval(() => {
+      void refreshAudioLevel();
+    }, 120);
+
+    return () => {
+      didCancel = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const addTodo = useCallback(() => {
     const title = draftTodo.trim();
@@ -1756,8 +2182,9 @@ function App() {
   const saveTodayTodos = useCallback(async () => {
     if (!saveDirectory.trim()) {
       setSaveState("needs-path");
-      setEditor("layout");
+      setPage("layout");
       setMode("expanded");
+      setIsTucked(false);
       return;
     }
 
@@ -1944,6 +2371,16 @@ function App() {
   }, []);
 
   useEffect(() => {
+    void refreshMediaState();
+
+    const interval = window.setInterval(() => {
+      void refreshMediaState();
+    }, 1500);
+
+    return () => window.clearInterval(interval);
+  }, [refreshMediaState]);
+
+  useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   }, [settings]);
 
@@ -2080,19 +2517,20 @@ function App() {
     <main className="stage" style={stageStyle}>
       <IslandShell
         mode={mode}
-        editor={editor}
+        page={page}
         isTucked={isTucked}
         showTitle={settings.showTitle}
         activeTaskTitle={activeTaskTitle}
         pendingTodoCount={openTodoCount}
-        onToggle={toggleIsland}
+        mediaState={mediaState}
+        onOpenPage={openIslandPage}
         onCollapse={collapseIsland}
         onMinimize={minimizeIsland}
         onTuck={tuckIsland}
         onReveal={revealIsland}
-        onEditorChange={setEditor}
+        onPageChange={setPage}
       >
-        {editor === "layout" && (
+        {page === "layout" && (
           <LayoutEditor
             settings={settings}
             saveDirectoryDraft={saveDirectoryDraft}
@@ -2111,7 +2549,15 @@ function App() {
             onLaunchAtStartupChange={updateLaunchAtStartup}
           />
         )}
-        {editor === null && (
+        {page === "music" && (
+          <MusicPlayerPanel
+            mediaState={mediaState}
+            onPlayPause={() => void runMediaCommand("media_play_pause")}
+            onNext={() => void runMediaCommand("media_next")}
+            onPrevious={() => void runMediaCommand("media_previous")}
+          />
+        )}
+        {page === "todo" && (
           <TodoNotebook
             todos={todos}
             dailyNote={dailyNote}
