@@ -612,6 +612,7 @@ input {
     radial-gradient(circle at 88% 12%, rgba(255, 209, 102, 0.16), transparent 30%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
     rgba(15, 14, 18, 0.88);
+  background-size: auto;
   border-radius: 22px;
   box-shadow:
     0 16px 32px rgba(0, 0, 0, 0.24),
@@ -649,36 +650,86 @@ input {
   padding: 0 7px;
   color: #181410;
   background: #ffd166;
+  border: 0;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 900;
 }
 
+.clipboard-panel__tools {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.clipboard-shortcut-display,
 .clipboard-clear-button {
   height: 28px;
-  padding: 0 11px;
-  color: #181410;
-  background: #ffd166;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
-  border-radius: 999px;
   outline: none;
-  cursor: pointer;
   font-size: 12px;
   font-weight: 900;
   transition:
     background 140ms ease,
     opacity 140ms ease,
-    transform 140ms ease;
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.clipboard-shortcut-display {
+  min-width: 86px;
+  gap: 6px;
+  padding: 0 9px;
+  color: rgba(248, 244, 233, 0.78);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  box-shadow: none;
+  cursor: default;
+  user-select: none;
+}
+
+.clipboard-shortcut-display span {
+  white-space: nowrap;
+}
+
+.clipboard-clear-button {
+  min-width: 50px;
+  padding: 0 11px;
+  color: #181410;
+  background: #ffd166;
+  border-radius: 999px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.clipboard-clear-button--confirming {
+  color: #ffffff;
+  background: #c75065;
 }
 
 .clipboard-clear-button:hover:not(:disabled) {
-  background: #ffe09b;
   transform: translateY(-1px);
+}
+
+.clipboard-clear-button:hover:not(:disabled) {
+  color: #181410;
+  background: #ffe09b;
+}
+
+.clipboard-clear-button--confirming:hover:not(:disabled) {
+  color: #ffffff;
+  background: #c75065;
 }
 
 .clipboard-clear-button:disabled {
   cursor: default;
   opacity: 0.38;
+  transform: none;
 }
 
 .clipboard-search {
@@ -692,6 +743,7 @@ input {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 9px;
+  box-shadow: none;
 }
 
 .clipboard-search:focus-within {
@@ -764,6 +816,7 @@ input {
   display: grid;
   place-items: center;
   color: rgba(248, 244, 233, 0.5);
+  background: transparent;
   border: 1px dashed rgba(255, 255, 255, 0.14);
   border-radius: 10px;
   font-size: 13px;
@@ -780,6 +833,7 @@ input {
   background: rgba(255, 255, 255, 0.075);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
+  box-shadow: none;
 }
 
 .clipboard-item__main {
@@ -814,7 +868,12 @@ input {
   overflow: hidden;
   color: #181410;
   background: #ffd166;
+  border: 0;
   border-radius: 8px;
+}
+
+.clipboard-item__thumb {
+  background: #ffd166;
 }
 
 .clipboard-item__thumb img {
@@ -827,26 +886,6 @@ input {
   min-width: 0;
   display: grid;
   gap: 6px;
-}
-
-.clipboard-item__meta {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  overflow: hidden;
-  color: rgba(248, 244, 233, 0.5);
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.clipboard-item__meta span,
-.clipboard-item__meta time {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .clipboard-item__preview {
@@ -885,6 +924,18 @@ input {
 .clipboard-item__actions button:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.16);
+}
+
+.clipboard-copy-button--copied {
+  color: #ffffff !important;
+  background: #2f8c61 !important;
+  animation: saveButtonPop 760ms ease both;
+  box-shadow: 0 0 0 4px rgba(152, 212, 187, 0.22);
+}
+
+.clipboard-delete-button--confirming {
+  color: #ffffff !important;
+  background: #c75065 !important;
 }
 
 .todo-notebook {
@@ -1758,6 +1809,61 @@ input {
   line-height: 1;
 }
 
+.settings-section {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.settings-section__header {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 0;
+  color: rgba(248, 246, 240, 0.88);
+  border-bottom: 0;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.settings-section__header > span {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border-radius: 0;
+}
+
+.settings-section--clipboard,
+.settings-section--colors,
+.settings-section--presets,
+.settings-section--storage {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-section--attention {
+  margin-right: -10px;
+  margin-left: -10px;
+  padding: 12px 10px 10px;
+  background: rgba(255, 209, 102, 0.08);
+  border: 1px solid rgba(255, 209, 102, 0.42);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 4px rgba(255, 209, 102, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
 .reset-button {
   width: 28px;
   height: 28px;
@@ -1918,6 +2024,79 @@ input {
 .number-control input:focus {
   border-color: rgba(255, 209, 102, 0.68);
   box-shadow: 0 0 0 3px rgba(255, 209, 102, 0.14);
+}
+
+.shortcut-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.shortcut-control__meta {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: rgba(248, 246, 240, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.shortcut-control__meta strong {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(248, 246, 240, 0.94);
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shortcut-record-button {
+  min-width: 112px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  color: rgba(248, 246, 240, 0.82);
+  background: rgba(255, 255, 255, 0.08);
+  border: 0;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.shortcut-record-button span {
+  white-space: nowrap;
+}
+
+.shortcut-record-button:hover,
+.shortcut-record-button:focus-visible {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: none;
+}
+
+.shortcut-record-button:focus-visible {
+  outline: 2px solid rgba(143, 216, 255, 0.88);
+  outline-offset: 2px;
+}
+
+.shortcut-record-button--recording {
+  color: #ffffff;
+  background: #c75065;
+  box-shadow: 0 0 0 4px rgba(199, 80, 101, 0.16);
+  animation: saveButtonPop 760ms ease both;
 }
 
 .clipboard-settings-panel {
@@ -2172,18 +2351,14 @@ input {
 .save-path-panel {
   display: grid;
   gap: 10px;
-  margin-top: 8px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .save-path-panel--attention {
-  margin: 8px -10px 0;
-  padding: 12px 10px 10px;
   background: rgba(116, 214, 255, 0.08);
-  border: 1px solid rgba(116, 214, 255, 0.6);
-  border-radius: 10px;
-  box-shadow: 0 0 0 4px rgba(116, 214, 255, 0.14);
+  border-color: rgba(116, 214, 255, 0.6);
+  box-shadow:
+    0 0 0 4px rgba(116, 214, 255, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .save-path-panel__header {

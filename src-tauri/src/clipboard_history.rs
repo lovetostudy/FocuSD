@@ -24,10 +24,16 @@ use windows::{
             DataExchange::{AddClipboardFormatListener, RemoveClipboardFormatListener},
             LibraryLoader::GetModuleHandleW,
         },
-        UI::WindowsAndMessaging::{
-            CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW,
-            TranslateMessage, HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLIPBOARDUPDATE,
-            WNDCLASSW,
+        UI::{
+            Input::KeyboardAndMouse::{
+                RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL,
+                MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+            },
+            WindowsAndMessaging::{
+                CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, PostMessageW,
+                RegisterClassW, TranslateMessage, HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WINDOW_STYLE,
+                WM_APP, WM_CLIPBOARDUPDATE, WM_HOTKEY, WNDCLASSW,
+            },
         },
     },
 };
@@ -35,16 +41,23 @@ use windows::{
 const HISTORY_FILE_NAME: &str = "clipboard-history.json";
 const IMAGE_DIRECTORY_NAME: &str = "clipboard-images";
 const HISTORY_CHANGED_EVENT: &str = "clipboard-history-changed";
+const HOTKEY_EVENT: &str = "clipboard-history-shortcut";
+const MAIN_WINDOW_LABEL: &str = "main";
 const DEFAULT_MAX_ITEMS: usize = 30;
+const DEFAULT_SHORTCUT: &str = "Ctrl+X";
 const MIN_MAX_ITEMS: usize = 5;
 const MAX_MAX_ITEMS: usize = 200;
 const SHORT_DUPLICATE_WINDOW_MS: i64 = 2_000;
 const MAX_IMAGE_PNG_BYTES: usize = 10 * 1024 * 1024;
 const THUMBNAIL_MAX_SIDE: u32 = 128;
 const POLL_INTERVAL: Duration = Duration::from_millis(750);
+const HOTKEY_ID: i32 = 0x4643;
+const HOTKEY_REFRESH_MESSAGE: u32 = WM_APP + 0x51;
 
 static CLIPBOARD_HISTORY: OnceLock<ClipboardHistoryService> = OnceLock::new();
 static CLIPBOARD_NOTIFY_TX: OnceLock<Mutex<Option<Sender<()>>>> = OnceLock::new();
+static CLIPBOARD_HOTKEY_WINDOW: OnceLock<Mutex<Option<isize>>> = OnceLock::new();
+static CLIPBOARD_HOTKEY_REGISTERED: OnceLock<Mutex<bool>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +72,8 @@ pub struct ClipboardHistorySettings {
     enabled: bool,
     capture_images: bool,
     max_items: usize,
+    #[serde(default = "default_clipboard_shortcut")]
+    shortcut: String,
 }
 
 impl Default for ClipboardHistorySettings {
@@ -67,6 +82,7 @@ impl Default for ClipboardHistorySettings {
             enabled: true,
             capture_images: true,
             max_items: DEFAULT_MAX_ITEMS,
+            shortcut: default_clipboard_shortcut(),
         }
     }
 }
@@ -74,8 +90,25 @@ impl Default for ClipboardHistorySettings {
 impl ClipboardHistorySettings {
     fn normalized(mut self) -> Self {
         self.max_items = self.max_items.clamp(MIN_MAX_ITEMS, MAX_MAX_ITEMS);
+        self.shortcut = parse_shortcut_binding(&self.shortcut)
+            .unwrap_or_else(default_shortcut_binding)
+            .label;
         self
     }
+}
+
+struct ShortcutBinding {
+    label: String,
+    modifiers: u32,
+    key_code: u32,
+}
+
+fn default_clipboard_shortcut() -> String {
+    DEFAULT_SHORTCUT.to_string()
+}
+
+fn default_shortcut_binding() -> ShortcutBinding {
+    parse_shortcut_binding(DEFAULT_SHORTCUT).expect("default clipboard shortcut should be valid")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -128,6 +161,7 @@ impl Default for PersistedClipboardHistory {
 struct ClipboardHistoryState {
     settings: ClipboardHistorySettings,
     items: Vec<ClipboardHistoryItem>,
+    last_capture_hash: Option<String>,
 }
 
 struct ClipboardHistoryService {
@@ -201,6 +235,7 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
         state: Mutex::new(ClipboardHistoryState {
             settings: persisted.settings.normalized(),
             items: persisted.items,
+            last_capture_hash: None,
         }),
     };
 
@@ -251,6 +286,7 @@ impl ClipboardHistoryService {
         drop(state);
 
         self.emit_changed();
+        request_hotkey_refresh();
         Ok(snapshot)
     }
 
@@ -295,7 +331,9 @@ impl ClipboardHistoryService {
             }
         }
 
-        self.touch_hash(&item.hash)
+        let mut state = self.state.lock().map_err(|error| error.to_string())?;
+        state.last_capture_hash = Some(item.hash);
+        Ok(Self::snapshot_locked(&state))
     }
 
     fn delete_item(&self, id: &str) -> Result<ClipboardHistorySnapshot, String> {
@@ -358,6 +396,11 @@ impl ClipboardHistoryService {
         let hash = capture.hash().to_string();
         let mut state = self.state.lock().map_err(|error| error.to_string())?;
 
+        if state.last_capture_hash.as_deref() == Some(hash.as_str()) {
+            return Ok(());
+        }
+        state.last_capture_hash = Some(hash.clone());
+
         if let Some(first) = state.items.first() {
             if first.hash == hash
                 && now.saturating_sub(first.copied_at) <= SHORT_DUPLICATE_WINDOW_MS
@@ -418,21 +461,6 @@ impl ClipboardHistoryService {
 
         self.emit_changed();
         Ok(())
-    }
-
-    fn touch_hash(&self, hash: &str) -> Result<ClipboardHistorySnapshot, String> {
-        let mut state = self.state.lock().map_err(|error| error.to_string())?;
-        if let Some(index) = state.items.iter().position(|item| item.hash == hash) {
-            let mut item = state.items.remove(index);
-            item.copied_at = current_unix_millis();
-            state.items.insert(0, item);
-            self.persist_locked(&state)?;
-        }
-        let snapshot = Self::snapshot_locked(&state);
-        drop(state);
-
-        self.emit_changed();
-        Ok(snapshot)
     }
 
     fn persist_image(
@@ -509,6 +537,15 @@ impl ClipboardHistoryService {
 
     fn emit_changed(&self) {
         let _ = self.app.emit(HISTORY_CHANGED_EVENT, ());
+    }
+
+    fn emit_shortcut(&self) {
+        if let Some(window) = self.app.get_webview_window(MAIN_WINDOW_LABEL) {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+
+        let _ = self.app.emit(HOTKEY_EVENT, ());
     }
 }
 
@@ -624,6 +661,20 @@ fn start_workers() {
     });
 }
 
+fn request_hotkey_refresh() {
+    let hwnd = CLIPBOARD_HOTKEY_WINDOW
+        .get()
+        .and_then(|window| window.lock().ok())
+        .and_then(|window| *window)
+        .map(|window| HWND(window as *mut core::ffi::c_void));
+
+    if let Some(hwnd) = hwnd {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), HOTKEY_REFRESH_MESSAGE, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
 fn notify_clipboard_changed() {
     if let Some(sender) = CLIPBOARD_NOTIFY_TX
         .get()
@@ -667,6 +718,14 @@ fn run_windows_clipboard_listener() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
 
         AddClipboardFormatListener(hwnd).map_err(|error| error.to_string())?;
+        if let Some(window) = CLIPBOARD_HOTKEY_WINDOW.get() {
+            if let Ok(mut stored_window) = window.lock() {
+                *stored_window = Some(hwnd.0 as isize);
+            }
+        } else {
+            let _ = CLIPBOARD_HOTKEY_WINDOW.set(Mutex::new(Some(hwnd.0 as isize)));
+        }
+        refresh_registered_hotkey(hwnd);
 
         let mut message = MSG::default();
         while GetMessageW(&mut message, None, 0, 0).into() {
@@ -674,6 +733,7 @@ fn run_windows_clipboard_listener() -> Result<(), String> {
             DispatchMessageW(&message);
         }
 
+        unregister_current_hotkey(hwnd);
         let _ = RemoveClipboardFormatListener(hwnd);
     }
 
@@ -691,7 +751,179 @@ unsafe extern "system" fn clipboard_window_proc(
         return LRESULT(0);
     }
 
+    if message == WM_HOTKEY && wparam.0 == HOTKEY_ID as usize {
+        if let Ok(service) = service() {
+            service.emit_shortcut();
+        }
+        return LRESULT(0);
+    }
+
+    if message == HOTKEY_REFRESH_MESSAGE {
+        refresh_registered_hotkey(hwnd);
+        return LRESULT(0);
+    }
+
     unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+}
+
+fn refresh_registered_hotkey(hwnd: HWND) {
+    unsafe {
+        unregister_current_hotkey(hwnd);
+
+        let binding = service()
+            .ok()
+            .and_then(|service| service.snapshot().ok())
+            .and_then(|snapshot| parse_shortcut_binding(&snapshot.settings.shortcut))
+            .unwrap_or_else(default_shortcut_binding);
+
+        match RegisterHotKey(
+            Some(hwnd),
+            HOTKEY_ID,
+            HOT_KEY_MODIFIERS(binding.modifiers | MOD_NOREPEAT.0),
+            binding.key_code,
+        ) {
+            Ok(()) => set_hotkey_registered(true),
+            Err(error) => {
+                set_hotkey_registered(false);
+                eprintln!(
+                    "failed to register clipboard history shortcut {}: {error}",
+                    binding.label
+                );
+            }
+        }
+    }
+}
+
+unsafe fn unregister_current_hotkey(hwnd: HWND) {
+    if hotkey_registered() {
+        let _ = unsafe { UnregisterHotKey(Some(hwnd), HOTKEY_ID) };
+        set_hotkey_registered(false);
+    }
+}
+
+fn hotkey_registered() -> bool {
+    CLIPBOARD_HOTKEY_REGISTERED
+        .get_or_init(|| Mutex::new(false))
+        .lock()
+        .map(|registered| *registered)
+        .unwrap_or(false)
+}
+
+fn set_hotkey_registered(value: bool) {
+    if let Ok(mut registered) = CLIPBOARD_HOTKEY_REGISTERED
+        .get_or_init(|| Mutex::new(false))
+        .lock()
+    {
+        *registered = value;
+    }
+}
+
+fn parse_shortcut_binding(shortcut: &str) -> Option<ShortcutBinding> {
+    let mut has_ctrl = false;
+    let mut has_alt = false;
+    let mut has_shift = false;
+    let mut has_win = false;
+    let mut key_label: Option<String> = None;
+    let mut key_code: Option<u32> = None;
+
+    for part in shortcut
+        .split('+')
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+    {
+        let normalized = part.to_ascii_lowercase();
+
+        match normalized.as_str() {
+            "ctrl" | "control" => has_ctrl = true,
+            "alt" | "option" => has_alt = true,
+            "shift" => has_shift = true,
+            "win" | "windows" | "meta" | "cmd" | "super" => has_win = true,
+            _ => {
+                if key_code.is_some() {
+                    return None;
+                }
+
+                let (label, code) = shortcut_key_code(part)?;
+                key_label = Some(label);
+                key_code = Some(code);
+            }
+        }
+    }
+
+    if !(has_ctrl || has_alt || has_shift || has_win) {
+        return None;
+    }
+
+    let mut label_parts = Vec::new();
+    let mut modifiers = 0;
+
+    if has_ctrl {
+        label_parts.push("Ctrl".to_string());
+        modifiers |= MOD_CONTROL.0;
+    }
+
+    if has_alt {
+        label_parts.push("Alt".to_string());
+        modifiers |= MOD_ALT.0;
+    }
+
+    if has_shift {
+        label_parts.push("Shift".to_string());
+        modifiers |= MOD_SHIFT.0;
+    }
+
+    if has_win {
+        label_parts.push("Win".to_string());
+        modifiers |= MOD_WIN.0;
+    }
+
+    label_parts.push(key_label?);
+
+    Some(ShortcutBinding {
+        label: label_parts.join("+"),
+        modifiers,
+        key_code: key_code?,
+    })
+}
+
+fn shortcut_key_code(key: &str) -> Option<(String, u32)> {
+    let upper = key.trim().to_ascii_uppercase();
+
+    if upper.len() == 1 {
+        let byte = upper.as_bytes()[0];
+
+        if byte.is_ascii_alphanumeric() {
+            return Some((upper, byte as u32));
+        }
+    }
+
+    if let Some(number) = upper
+        .strip_prefix('F')
+        .and_then(|value| value.parse::<u32>().ok())
+    {
+        if (1..=24).contains(&number) {
+            return Some((format!("F{number}"), 0x70 + number - 1));
+        }
+    }
+
+    match upper.as_str() {
+        "ESC" | "ESCAPE" => Some(("Esc".to_string(), 0x1B)),
+        "TAB" => Some(("Tab".to_string(), 0x09)),
+        "ENTER" | "RETURN" => Some(("Enter".to_string(), 0x0D)),
+        "SPACE" => Some(("Space".to_string(), 0x20)),
+        "BACKSPACE" => Some(("Backspace".to_string(), 0x08)),
+        "DELETE" | "DEL" => Some(("Delete".to_string(), 0x2E)),
+        "INSERT" | "INS" => Some(("Insert".to_string(), 0x2D)),
+        "HOME" => Some(("Home".to_string(), 0x24)),
+        "END" => Some(("End".to_string(), 0x23)),
+        "PAGEUP" | "PAGE UP" => Some(("PageUp".to_string(), 0x21)),
+        "PAGEDOWN" | "PAGE DOWN" => Some(("PageDown".to_string(), 0x22)),
+        "ARROWUP" | "UP" => Some(("Up".to_string(), 0x26)),
+        "ARROWDOWN" | "DOWN" => Some(("Down".to_string(), 0x28)),
+        "ARROWLEFT" | "LEFT" => Some(("Left".to_string(), 0x25)),
+        "ARROWRIGHT" | "RIGHT" => Some(("Right".to_string(), 0x27)),
+        _ => None,
+    }
 }
 
 fn current_unix_millis() -> i64 {

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type WheelEvent,
 } from "react";
@@ -16,6 +17,7 @@ import {
   Columns2,
   Copy,
   ImageIcon,
+  Keyboard,
   Minus,
   NotebookPen,
   Pause,
@@ -76,6 +78,7 @@ type ClipboardHistorySettings = {
   enabled: boolean;
   captureImages: boolean;
   maxItems: number;
+  shortcut: string;
 };
 
 type ClipboardHistoryImage = {
@@ -167,6 +170,7 @@ const TODO_GROW_START_ROWS = 2;
 const TODO_SCROLL_START_ROWS = 6;
 const MAX_CUSTOM_SETTING_PRESETS = 6;
 const DEFAULT_TASK_TEXT_COLOR = "#1afbff";
+const DEFAULT_CLIPBOARD_SHORTCUT = "Ctrl+X";
 const AUDIO_ACTIVE_THRESHOLD = 0.000015;
 const DEFAULT_MEDIA_STATE: MediaState = {
   available: false,
@@ -180,6 +184,7 @@ const DEFAULT_CLIPBOARD_HISTORY: ClipboardHistorySnapshot = {
     enabled: true,
     captureImages: true,
     maxItems: 30,
+    shortcut: DEFAULT_CLIPBOARD_SHORTCUT,
   },
   items: [],
 };
@@ -223,6 +228,156 @@ function hexToRgba(hex: string, alpha: number) {
   const blue = Number.parseInt(normalized.slice(4, 6), 16);
 
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
+type ShortcutKeyboardEvent = Pick<
+  KeyboardEvent,
+  "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey"
+>;
+
+const MODIFIER_KEY_NAMES = new Set([
+  "Alt",
+  "AltGraph",
+  "Control",
+  "Meta",
+  "Shift",
+]);
+
+function normalizeShortcutKeyLabel(key: string) {
+  if (key.length === 1) {
+    return key.toUpperCase();
+  }
+
+  switch (key) {
+    case " ":
+    case "Spacebar":
+      return "Space";
+    case "Escape":
+      return "Esc";
+    case "ArrowUp":
+      return "Up";
+    case "ArrowDown":
+      return "Down";
+    case "ArrowLeft":
+      return "Left";
+    case "ArrowRight":
+      return "Right";
+    default:
+      return key;
+  }
+}
+
+function buildShortcutFromEvent(event: ShortcutKeyboardEvent) {
+  if (MODIFIER_KEY_NAMES.has(event.key)) {
+    return null;
+  }
+
+  const parts: string[] = [];
+
+  if (event.ctrlKey) {
+    parts.push("Ctrl");
+  }
+
+  if (event.altKey) {
+    parts.push("Alt");
+  }
+
+  if (event.shiftKey) {
+    parts.push("Shift");
+  }
+
+  if (event.metaKey) {
+    parts.push("Win");
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  parts.push(normalizeShortcutKeyLabel(event.key));
+  return parts.join("+");
+}
+
+function normalizeClipboardShortcut(shortcut: string | undefined) {
+  const text = shortcut?.trim();
+
+  if (!text) {
+    return DEFAULT_CLIPBOARD_SHORTCUT;
+  }
+
+  const parts = text
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const modifiers = new Set<string>();
+  let keyLabel = "";
+
+  for (const part of parts) {
+    const normalized = part.toLowerCase();
+
+    if (normalized === "ctrl" || normalized === "control") {
+      modifiers.add("Ctrl");
+    } else if (normalized === "alt" || normalized === "option") {
+      modifiers.add("Alt");
+    } else if (normalized === "shift") {
+      modifiers.add("Shift");
+    } else if (
+      normalized === "win" ||
+      normalized === "windows" ||
+      normalized === "meta" ||
+      normalized === "cmd" ||
+      normalized === "super"
+    ) {
+      modifiers.add("Win");
+    } else if (!keyLabel) {
+      keyLabel = normalizeShortcutKeyLabel(part);
+    }
+  }
+
+  if (!keyLabel || modifiers.size === 0) {
+    return DEFAULT_CLIPBOARD_SHORTCUT;
+  }
+
+  return ["Ctrl", "Alt", "Shift", "Win"]
+    .filter((modifier) => modifiers.has(modifier))
+    .concat(keyLabel)
+    .join("+");
+}
+
+function normalizeClipboardSettings(
+  settings: ClipboardHistorySettings,
+): ClipboardHistorySettings {
+  return {
+    ...settings,
+    maxItems: clamp(Math.round(settings.maxItems), 5, 200),
+    shortcut: normalizeClipboardShortcut(settings.shortcut),
+  };
+}
+
+function matchesClipboardShortcut(
+  event: KeyboardEvent,
+  shortcut: string | undefined,
+) {
+  if (isEditableTarget(event.target)) {
+    return false;
+  }
+
+  return (
+    buildShortcutFromEvent(event) === normalizeClipboardShortcut(shortcut)
+  );
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
 }
 
 function normalizeSettings(
@@ -553,7 +708,7 @@ function IslandShell({
       aria-label={collapsedLabel}
       onClick={() => {
         if (!isExpanded) {
-          onOpenPage("todo");
+          onOpenPage(page);
         }
       }}
       onMouseEnter={() => {
@@ -903,6 +1058,7 @@ function LayoutEditor({
   saveDirectoryDraft,
   savePathState,
   highlightSavePath,
+  focusClipboardShortcutToken,
   presets,
   launchAtStartup,
   onSettingsChange,
@@ -915,12 +1071,14 @@ function LayoutEditor({
   onRenamePreset,
   onDeletePreset,
   onLaunchAtStartupChange,
+  onClipboardShortcutFocusHandled,
 }: {
   settings: IslandSettings;
   clipboardSettings: ClipboardHistorySettings;
   saveDirectoryDraft: string;
   savePathState: SavePathState;
   highlightSavePath: boolean;
+  focusClipboardShortcutToken: number;
   presets: IslandPreset[];
   launchAtStartup: boolean;
   onSettingsChange: (settings: IslandSettings) => void;
@@ -933,11 +1091,15 @@ function LayoutEditor({
   onRenamePreset: (presetId: string, name: string) => void;
   onDeletePreset: (presetId: string) => void;
   onLaunchAtStartupChange: (enabled: boolean) => void;
+  onClipboardShortcutFocusHandled: () => void;
 }) {
-  const savePathPanelRef = useRef<HTMLDivElement | null>(null);
+  const savePathPanelRef = useRef<HTMLElement | null>(null);
   const savePathInputRef = useRef<HTMLInputElement | null>(null);
+  const clipboardShortcutPanelRef = useRef<HTMLElement | null>(null);
+  const clipboardShortcutButtonRef = useRef<HTMLButtonElement | null>(null);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [presetNameDraft, setPresetNameDraft] = useState("");
+  const [isRecordingShortcut, setIsRecordingShortcut] = useState(false);
 
   const startPresetRename = useCallback((preset: IslandPreset) => {
     setEditingPresetId(preset.id);
@@ -975,10 +1137,60 @@ function LayoutEditor({
     return () => window.cancelAnimationFrame(frame);
   }, [highlightSavePath]);
 
+  useEffect(() => {
+    if (focusClipboardShortcutToken <= 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const editorPanel = clipboardShortcutPanelRef.current?.closest(".editor-panel");
+
+      if (editorPanel instanceof HTMLElement && clipboardShortcutPanelRef.current) {
+        const targetTop = clipboardShortcutPanelRef.current.offsetTop - 12;
+        editorPanel.scrollTo({ top: targetTop, behavior: "smooth" });
+      }
+
+      clipboardShortcutButtonRef.current?.focus({ preventScroll: true });
+      setIsRecordingShortcut(true);
+      onClipboardShortcutFocusHandled();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusClipboardShortcutToken, onClipboardShortcutFocusHandled]);
+
+  const handleShortcutKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+      if (!isRecordingShortcut) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Escape") {
+        setIsRecordingShortcut(false);
+        return;
+      }
+
+      const shortcut = buildShortcutFromEvent(event.nativeEvent);
+
+      if (!shortcut) {
+        return;
+      }
+
+      onClipboardSettingsChange({
+        ...clipboardSettings,
+        shortcut,
+      });
+      setIsRecordingShortcut(false);
+    },
+    [clipboardSettings, isRecordingShortcut, onClipboardSettingsChange],
+  );
+
   return (
     <div className="editor-panel">
       <div className="editor-panel__header">
-        <span>布局设置</span>
+        <span>设置</span>
         <button
           className="reset-button"
           type="button"
@@ -989,46 +1201,61 @@ function LayoutEditor({
           <RefreshCcw size={15} strokeWidth={2.2} />
         </button>
       </div>
-      <SliderControl
-        label="不透明度"
-        value={settings.opacity}
-        min={50}
-        max={100}
-        step={1}
-        suffix="%"
-        onChange={(opacity) => onSettingsChange({ ...settings, opacity })}
-      />
-      <SliderControl
-        label="整体大小"
-        value={settings.sizeScale}
-        min={0.75}
-        max={1.4}
-        step={0.01}
-        suffix="x"
-        onChange={(sizeScale) => onSettingsChange({ ...settings, sizeScale })}
-      />
-      <SliderControl
-        label="上下边距"
-        value={settings.marginY}
-        min={0}
-        max={160}
-        step={1}
-        suffix="px"
-        onChange={(marginY) => onSettingsChange({ ...settings, marginY })}
-      />
-      <ToggleControl
-        label="开机自启动"
-        checked={launchAtStartup}
-        onChange={onLaunchAtStartupChange}
-      />
-      <ToggleControl
-        label="展示“title”"
-        checked={settings.showTitle}
-        onChange={(showTitle) => onSettingsChange({ ...settings, showTitle })}
-      />
 
-      <div className="clipboard-settings-panel">
-        <div className="clipboard-settings-panel__header">
+      <section className="settings-section settings-section--layout">
+        <div className="settings-section__header">
+          <span>布局设置</span>
+        </div>
+        <SliderControl
+          label="不透明度"
+          value={settings.opacity}
+          min={50}
+          max={100}
+          step={1}
+          suffix="%"
+          onChange={(opacity) => onSettingsChange({ ...settings, opacity })}
+        />
+        <SliderControl
+          label="整体大小"
+          value={settings.sizeScale}
+          min={0.75}
+          max={1.4}
+          step={0.01}
+          suffix="x"
+          onChange={(sizeScale) => onSettingsChange({ ...settings, sizeScale })}
+        />
+        <SliderControl
+          label="上下边距"
+          value={settings.marginY}
+          min={0}
+          max={160}
+          step={1}
+          suffix="px"
+          onChange={(marginY) => onSettingsChange({ ...settings, marginY })}
+        />
+        <ToggleControl
+          label="开机自启动"
+          checked={launchAtStartup}
+          onChange={onLaunchAtStartupChange}
+        />
+        <ToggleControl
+          label="展示“title”"
+          checked={settings.showTitle}
+          onChange={(showTitle) => onSettingsChange({ ...settings, showTitle })}
+        />
+      </section>
+
+      <section
+        className={[
+          "settings-section",
+          "settings-section--clipboard",
+          focusClipboardShortcutToken > 0 ? "settings-section--attention" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        ref={clipboardShortcutPanelRef}
+      >
+        <div className="settings-section__header">
           <span>剪贴板历史</span>
         </div>
         <ToggleControl
@@ -1054,10 +1281,36 @@ function LayoutEditor({
             onClipboardSettingsChange({ ...clipboardSettings, maxItems })
           }
         />
-      </div>
+        <div className="shortcut-control">
+          <div className="shortcut-control__meta">
+            <span>展开快捷键</span>
+            <strong>{normalizeClipboardShortcut(clipboardSettings.shortcut)}</strong>
+          </div>
+          <button
+            ref={clipboardShortcutButtonRef}
+            className={[
+              "shortcut-record-button",
+              isRecordingShortcut ? "shortcut-record-button--recording" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            type="button"
+            onClick={() => setIsRecordingShortcut(true)}
+            onKeyDown={handleShortcutKeyDown}
+            onBlur={() => setIsRecordingShortcut(false)}
+          >
+            <Keyboard size={14} strokeWidth={2.3} />
+            <span>
+              {isRecordingShortcut
+                ? "按下组合键"
+                : normalizeClipboardShortcut(clipboardSettings.shortcut)}
+            </span>
+          </button>
+        </div>
+      </section>
 
-      <div className="color-panel">
-        <div className="color-panel__header">
+      <section className="settings-section settings-section--colors">
+        <div className="settings-section__header">
           <span>颜色设置</span>
         </div>
         <div className="color-grid">
@@ -1090,21 +1343,21 @@ function LayoutEditor({
             }
           />
         </div>
-      </div>
-      <SliderControl
-        label="亮点亮度"
-        value={settings.pulseBrightness}
-        min={50}
-        max={160}
-        step={1}
-        suffix="%"
-        onChange={(pulseBrightness) =>
-          onSettingsChange({ ...settings, pulseBrightness })
-        }
-      />
+        <SliderControl
+          label="亮点亮度"
+          value={settings.pulseBrightness}
+          min={50}
+          max={160}
+          step={1}
+          suffix="%"
+          onChange={(pulseBrightness) =>
+            onSettingsChange({ ...settings, pulseBrightness })
+          }
+        />
+      </section>
 
-      <div className="preset-panel">
-        <div className="preset-panel__header">
+      <section className="settings-section settings-section--presets">
+        <div className="settings-section__header">
           <span>预设</span>
           <button
             className="preset-save-button"
@@ -1190,10 +1443,12 @@ function LayoutEditor({
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      <div
+      <section
         className={[
+          "settings-section",
+          "settings-section--storage",
           "save-path-panel",
           highlightSavePath ? "save-path-panel--attention" : "",
         ]
@@ -1201,7 +1456,7 @@ function LayoutEditor({
           .join(" ")}
         ref={savePathPanelRef}
       >
-        <div className="save-path-panel__header">
+        <div className="settings-section__header save-path-panel__header">
           <span>待办清单保存路径</span>
         </div>
         <div className="save-path-row">
@@ -1240,7 +1495,7 @@ function LayoutEditor({
             )}
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -1860,11 +2115,17 @@ function ClipboardHistoryPanel({
   onClear,
 }: {
   snapshot: ClipboardHistorySnapshot;
-  onCopyItem: (id: string) => void;
-  onDeleteItem: (id: string) => void;
-  onClear: () => void;
+  onCopyItem: (id: string) => Promise<void> | void;
+  onDeleteItem: (id: string) => Promise<void> | void;
+  onClear: () => Promise<void> | void;
 }) {
   const [query, setQuery] = useState("");
+  const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isConfirmingClear, setIsConfirmingClear] = useState(false);
+  const copiedResetRef = useRef<number | null>(null);
+  const confirmDeleteResetRef = useRef<number | null>(null);
+  const confirmClearResetRef = useRef<number | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredItems = useMemo(() => {
     if (!normalizedQuery) {
@@ -1873,17 +2134,168 @@ function ClipboardHistoryPanel({
 
     return snapshot.items.filter((item) => {
       const haystack = [
-        item.kind === "image" ? "图片 image" : "文本 text",
         item.preview,
         item.text ?? "",
-        formatClipboardTime(item.copiedAt),
       ]
         .join(" ")
         .toLowerCase();
 
-      return haystack.includes(normalizedQuery);
+      return item.kind === "text" && haystack.includes(normalizedQuery);
     });
   }, [normalizedQuery, snapshot.items]);
+
+  useEffect(
+    () => () => {
+      if (copiedResetRef.current !== null) {
+        window.clearTimeout(copiedResetRef.current);
+      }
+
+      if (confirmDeleteResetRef.current !== null) {
+        window.clearTimeout(confirmDeleteResetRef.current);
+      }
+
+      if (confirmClearResetRef.current !== null) {
+        window.clearTimeout(confirmClearResetRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (confirmDeleteResetRef.current !== null) {
+      window.clearTimeout(confirmDeleteResetRef.current);
+      confirmDeleteResetRef.current = null;
+    }
+
+    if (!confirmDeleteId) {
+      return;
+    }
+
+    confirmDeleteResetRef.current = window.setTimeout(() => {
+      setConfirmDeleteId(null);
+      confirmDeleteResetRef.current = null;
+    }, 3000);
+
+    return () => {
+      if (confirmDeleteResetRef.current !== null) {
+        window.clearTimeout(confirmDeleteResetRef.current);
+        confirmDeleteResetRef.current = null;
+      }
+    };
+  }, [confirmDeleteId]);
+
+  useEffect(() => {
+    if (confirmClearResetRef.current !== null) {
+      window.clearTimeout(confirmClearResetRef.current);
+      confirmClearResetRef.current = null;
+    }
+
+    if (!isConfirmingClear) {
+      return;
+    }
+
+    confirmClearResetRef.current = window.setTimeout(() => {
+      setIsConfirmingClear(false);
+      confirmClearResetRef.current = null;
+    }, 3000);
+
+    return () => {
+      if (confirmClearResetRef.current !== null) {
+        window.clearTimeout(confirmClearResetRef.current);
+        confirmClearResetRef.current = null;
+      }
+    };
+  }, [isConfirmingClear]);
+
+  useEffect(() => {
+    if (!confirmDeleteId && !isConfirmingClear) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const isConfirmControl = event
+        .composedPath()
+        .some(
+          (node) =>
+            node instanceof Element &&
+            node.matches("[data-clipboard-confirm-control='true']"),
+        );
+
+      if (isConfirmControl) {
+        return;
+      }
+
+      setConfirmDeleteId(null);
+      setIsConfirmingClear(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [confirmDeleteId, isConfirmingClear]);
+
+  useEffect(() => {
+    if (
+      confirmDeleteId &&
+      !snapshot.items.some((item) => item.id === confirmDeleteId)
+    ) {
+      setConfirmDeleteId(null);
+    }
+
+    if (snapshot.items.length === 0) {
+      setIsConfirmingClear(false);
+    }
+  }, [confirmDeleteId, snapshot.items]);
+
+  const showCopiedState = useCallback((id: string) => {
+    setCopiedItemId(id);
+
+    if (copiedResetRef.current !== null) {
+      window.clearTimeout(copiedResetRef.current);
+    }
+
+    copiedResetRef.current = window.setTimeout(() => {
+      setCopiedItemId(null);
+      copiedResetRef.current = null;
+    }, 1100);
+  }, []);
+
+  const handleCopyItem = useCallback(
+    (id: string) => {
+      showCopiedState(id);
+      void Promise.resolve(onCopyItem(id));
+    },
+    [onCopyItem, showCopiedState],
+  );
+
+  const handleDeleteItem = useCallback(
+    (id: string) => {
+      if (confirmDeleteId !== id) {
+        setIsConfirmingClear(false);
+        setConfirmDeleteId(id);
+        return;
+      }
+
+      setConfirmDeleteId(null);
+      setIsConfirmingClear(false);
+      void Promise.resolve(onDeleteItem(id));
+    },
+    [confirmDeleteId, onDeleteItem],
+  );
+
+  const handleClear = useCallback(() => {
+    if (!isConfirmingClear) {
+      setConfirmDeleteId(null);
+      setIsConfirmingClear(true);
+      return;
+    }
+
+    setIsConfirmingClear(false);
+    setConfirmDeleteId(null);
+    void Promise.resolve(onClear());
+  }, [isConfirmingClear, onClear]);
 
   return (
     <section className="clipboard-panel" aria-label="剪贴板历史">
@@ -1893,22 +2305,40 @@ function ClipboardHistoryPanel({
           <span>剪贴板历史</span>
           <strong>{snapshot.items.length}</strong>
         </div>
-        <button
-          className="clipboard-clear-button"
-          type="button"
-          disabled={snapshot.items.length === 0}
-          onClick={onClear}
-        >
-          清空
-        </button>
+        <div className="clipboard-panel__tools">
+          <span className="clipboard-shortcut-display" aria-label="展开快捷键">
+            <Keyboard size={14} strokeWidth={2.3} />
+            <span>{normalizeClipboardShortcut(snapshot.settings.shortcut)}</span>
+          </span>
+          <button
+            className={[
+              "clipboard-clear-button",
+              isConfirmingClear ? "clipboard-clear-button--confirming" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            type="button"
+            disabled={snapshot.items.length === 0}
+            title={isConfirmingClear ? "确认清空" : "清空"}
+            aria-label={isConfirmingClear ? "确认清空" : "清空剪贴板历史"}
+            onClick={handleClear}
+            data-clipboard-confirm-control="true"
+          >
+            {isConfirmingClear ? (
+              <Check className="save-check-icon" size={14} strokeWidth={2.7} />
+            ) : (
+              "清空"
+            )}
+          </button>
+        </div>
       </header>
 
       <label className="clipboard-search">
         <Search size={15} strokeWidth={2.2} />
         <input
           value={query}
-          placeholder="搜索文本、时间或图片"
-          aria-label="搜索剪贴板历史"
+          placeholder="搜索文字"
+          aria-label="搜索剪贴板文字"
           onChange={(event) => setQuery(event.currentTarget.value)}
         />
         {query && (
@@ -1926,7 +2356,9 @@ function ClipboardHistoryPanel({
       <div className="clipboard-list" role="list">
         {filteredItems.length === 0 ? (
           <div className="clipboard-empty">
-            {snapshot.items.length === 0 ? "复制文本或图片后会出现在这里" : "没有匹配的剪贴记录"}
+            {snapshot.items.length === 0
+              ? "复制文本或图片后会出现在这里"
+              : "没有匹配的剪贴记录"}
           </div>
         ) : (
           filteredItems.map((item) => (
@@ -1935,7 +2367,7 @@ function ClipboardHistoryPanel({
                 className="clipboard-item__main"
                 type="button"
                 title="复制回剪贴板"
-                onClick={() => onCopyItem(item.id)}
+                onClick={() => handleCopyItem(item.id)}
               >
                 {item.kind === "image" ? (
                   <span className="clipboard-item__thumb">
@@ -1951,35 +2383,46 @@ function ClipboardHistoryPanel({
                   </span>
                 )}
                 <span className="clipboard-item__body">
-                  <span className="clipboard-item__meta">
-                    <span>{item.kind === "image" ? "图片" : "文本"}</span>
-                    <time>{formatClipboardTime(item.copiedAt)}</time>
-                    {item.image && (
-                      <span>
-                        {item.image.width} x {item.image.height}
-                      </span>
-                    )}
-                    {item.image && <span>{formatBytes(item.image.byteSize)}</span>}
-                  </span>
                   <span className="clipboard-item__preview">{item.preview}</span>
                 </span>
               </button>
               <div className="clipboard-item__actions">
                 <button
+                  className={[
+                    "clipboard-copy-button",
+                    copiedItemId === item.id ? "clipboard-copy-button--copied" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   type="button"
-                  title="复制"
+                  title={copiedItemId === item.id ? "已复制" : "复制"}
                   aria-label="复制回剪贴板"
-                  onClick={() => onCopyItem(item.id)}
+                  onClick={() => handleCopyItem(item.id)}
                 >
-                  <Copy size={14} strokeWidth={2.3} />
+                  {copiedItemId === item.id ? (
+                    <Check className="save-check-icon" size={14} strokeWidth={2.7} />
+                  ) : (
+                    <Copy size={14} strokeWidth={2.3} />
+                  )}
                 </button>
                 <button
+                  className={[
+                    "clipboard-delete-button",
+                    confirmDeleteId === item.id ? "clipboard-delete-button--confirming" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   type="button"
-                  title="删除"
+                  title={confirmDeleteId === item.id ? "确认删除" : "删除"}
                   aria-label="删除剪贴记录"
-                  onClick={() => onDeleteItem(item.id)}
+                  onClick={() => handleDeleteItem(item.id)}
+                  data-clipboard-confirm-control="true"
                 >
-                  <Trash2 size={14} strokeWidth={2.3} />
+                  {confirmDeleteId === item.id ? (
+                    <Check className="save-check-icon" size={14} strokeWidth={2.7} />
+                  ) : (
+                    <Trash2 size={14} strokeWidth={2.3} />
+                  )}
                 </button>
               </div>
             </article>
@@ -1988,39 +2431,6 @@ function ClipboardHistoryPanel({
       </div>
     </section>
   );
-}
-
-function formatClipboardTime(timestamp: number) {
-  if (!timestamp) {
-    return "--:--";
-  }
-
-  const date = new Date(timestamp);
-
-  if (Number.isNaN(date.getTime())) {
-    return "--:--";
-  }
-
-  const today = getLocalDateString();
-  const itemDate = getLocalDateString(date);
-  const time = date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-  return itemDate === today ? time : `${itemDate} ${time}`;
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return "0 KB";
-  }
-
-  if (bytes < 1024 * 1024) {
-    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  }
-
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function App() {
@@ -2055,6 +2465,9 @@ function App() {
   const [savePathState, setSavePathState] = useState<SavePathState>("idle");
   const [clipboardHistory, setClipboardHistory] =
     useState<ClipboardHistorySnapshot>(DEFAULT_CLIPBOARD_HISTORY);
+  const [focusClipboardShortcutToken, setFocusClipboardShortcutToken] =
+    useState(0);
+  const clipboardShortcutToggleAt = useRef(0);
   const didCheckDate = useRef(false);
   const selectedArchive =
     archives.find((archive) => archive.date === selectedArchiveDate) ?? null;
@@ -2205,10 +2618,7 @@ function App() {
 
   const updateClipboardSettings = useCallback(
     async (nextSettings: ClipboardHistorySettings) => {
-      const normalizedSettings = {
-        ...nextSettings,
-        maxItems: clamp(Math.round(nextSettings.maxItems), 5, 200),
-      };
+      const normalizedSettings = normalizeClipboardSettings(nextSettings);
 
       setClipboardHistory((currentHistory) => ({
         ...currentHistory,
@@ -2275,10 +2685,6 @@ function App() {
   const setIslandMode = useCallback((nextMode: IslandMode) => {
     setMode(nextMode);
     setIsTucked(false);
-
-    if (nextMode === "collapsed") {
-      setPage("todo");
-    }
   }, []);
 
   const tuckIsland = useCallback(() => {
@@ -2294,6 +2700,31 @@ function App() {
     setPage(nextPage);
     setMode("expanded");
     setIsTucked(false);
+  }, []);
+
+  const openClipboardHistory = useCallback(() => {
+    openIslandPage("clipboard");
+  }, [openIslandPage]);
+
+  const toggleClipboardHistory = useCallback(() => {
+    const now = Date.now();
+
+    if (now - clipboardShortcutToggleAt.current < 250) {
+      return;
+    }
+
+    clipboardShortcutToggleAt.current = now;
+
+    if (mode === "expanded" && page === "clipboard") {
+      setIslandMode("collapsed");
+      return;
+    }
+
+    openClipboardHistory();
+  }, [mode, openClipboardHistory, page, setIslandMode]);
+
+  const clearClipboardShortcutFocus = useCallback(() => {
+    setFocusClipboardShortcutToken(0);
   }, []);
 
   const collapseIsland = useCallback(() => {
@@ -2742,22 +3173,34 @@ function App() {
   useEffect(() => {
     void refreshClipboardHistory();
 
-    let unlisten: (() => void) | null = null;
+    let unlistenChanges: (() => void) | null = null;
+    let unlistenShortcut: (() => void) | null = null;
 
     void listen("clipboard-history-changed", () => {
       void refreshClipboardHistory();
     })
       .then((nextUnlisten) => {
-        unlisten = nextUnlisten;
+        unlistenChanges = nextUnlisten;
       })
       .catch((error) => {
         console.error("Failed to listen for clipboard history changes", error);
       });
 
+    void listen("clipboard-history-shortcut", () => {
+      toggleClipboardHistory();
+    })
+      .then((nextUnlisten) => {
+        unlistenShortcut = nextUnlisten;
+      })
+      .catch((error) => {
+        console.error("Failed to listen for clipboard history shortcut", error);
+      });
+
     return () => {
-      unlisten?.();
+      unlistenChanges?.();
+      unlistenShortcut?.();
     };
-  }, [refreshClipboardHistory]);
+  }, [refreshClipboardHistory, toggleClipboardHistory]);
 
   useEffect(() => {
     void refreshMediaState();
@@ -2860,6 +3303,12 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (matchesClipboardShortcut(event, clipboardHistory.settings.shortcut)) {
+        event.preventDefault();
+        toggleClipboardHistory();
+        return;
+      }
+
       if (event.key === "Escape") {
         collapseIsland();
       }
@@ -2867,7 +3316,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [collapseIsland]);
+  }, [clipboardHistory.settings.shortcut, collapseIsland, toggleClipboardHistory]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -2926,6 +3375,7 @@ function App() {
             saveDirectoryDraft={saveDirectoryDraft}
             savePathState={savePathState}
             highlightSavePath={saveState === "needs-path"}
+            focusClipboardShortcutToken={focusClipboardShortcutToken}
             presets={settingPresets}
             launchAtStartup={launchAtStartup}
             onSettingsChange={setSettings}
@@ -2938,6 +3388,7 @@ function App() {
             onRenamePreset={renameSettingsPreset}
             onDeletePreset={deleteSettingsPreset}
             onLaunchAtStartupChange={updateLaunchAtStartup}
+            onClipboardShortcutFocusHandled={clearClipboardShortcutFocus}
           />
         )}
         {page === "music" && (
