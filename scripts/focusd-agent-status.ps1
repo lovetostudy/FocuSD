@@ -86,6 +86,21 @@ function Get-AgentMarkerNames {
   )
 
   $sessionId = $env:FOCUSD_SESSION_ID
+  if (-not $sessionId) {
+    try {
+      $currentPid = $pid
+      $maxDepth = 5
+      for ($i = 0; $i -lt $maxDepth; $i++) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $currentPid" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $proc) { break }
+        if (($proc.Name -eq "claude.exe" -or $proc.Name -eq "node.exe")) {
+          $sessionId = "cc-$($proc.ProcessId)"
+          break
+        }
+        $currentPid = $proc.ParentProcessId
+      }
+    } catch { }
+  }
 
   if ($Provider -eq "codex") {
     $base = "agent-codex"
