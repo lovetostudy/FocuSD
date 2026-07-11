@@ -20,7 +20,6 @@ import {
   ImageIcon,
   Keyboard,
   Minus,
-  NotebookPen,
   Pause,
   Play,
   Plus,
@@ -40,7 +39,7 @@ import "./App.css";
 export type IslandMode = "collapsed" | "expanded";
 
 type IslandPage = "todo" | "music" | "clipboard" | "layout";
-type TodoPageMode = "today" | "daily" | "archive" | "review";
+type TodoPageMode = "today" | "archive";
 type ArchiveLayout = "cards" | "timeline";
 type MediaPlaybackStatus = "unavailable" | "playing" | "paused";
 type AgentProvider = "codex" | "claudeCode";
@@ -53,20 +52,13 @@ type TodoItem = {
   createdAt: number;
 };
 
-type TodoArchive = {
-  date: string;
-  todos: TodoItem[];
-  dailyNote: string;
-  savedAt: number;
-  savedToDisk: boolean;
-  filePath?: string;
+type CompletedArchiveEntry = {
+  title: string;
 };
 
-type SaveState = "idle" | "saving" | "saved" | "needs-path" | "error";
-type SavePathState = "idle" | "saved";
-
-type SaveTodoResult = {
-  filePath: string;
+type CompletedArchive = {
+  date: string;
+  items: CompletedArchiveEntry[];
 };
 
 type MediaState = {
@@ -121,7 +113,13 @@ type AgentTaskStatus = {
   updatedAt: number;
 };
 
+type AgentSessionInfo = {
+  sessionId: string;
+  provider: string;
+};
+
 type AgentStatusSnapshot = Record<AgentProvider, AgentTaskStatus> & {
+  activeSessions: AgentSessionInfo[];
   updatedAt: number;
   statusPath: string;
 };
@@ -164,7 +162,7 @@ type IslandShellProps = {
   activeTaskTitle: string | null;
   pendingTodoCount: number;
   mediaState: MediaState;
-  isAgentRunning: boolean;
+  activeSessions: AgentSessionInfo[];
   onOpenPage: (page: IslandPage) => void;
   onCollapse: () => void;
   onMinimize: () => void;
@@ -178,12 +176,7 @@ const STORAGE_KEY = "focusd-island-settings";
 const SETTINGS_PRESETS_STORAGE_KEY = "focusd-island-setting-presets";
 const TODOS_STORAGE_KEY = "focusd-island-todos";
 const ACTIVE_TODO_STORAGE_KEY = "focusd-island-active-todo";
-const TODO_DATE_STORAGE_KEY = "focusd-island-current-date";
-const TODO_ARCHIVE_STORAGE_KEY = "focusd-island-archives";
-const DAILY_NOTE_STORAGE_KEY = "focusd-island-daily-note";
-const TODO_SAVE_DIRECTORY_STORAGE_KEY = "focusd-island-save-directory";
-const TODO_LAST_SAVED_SIGNATURE_STORAGE_KEY =
-  "focusd-island-last-saved-signature";
+const TODOS_DIRECTORY_STORAGE_KEY = "focusd-island-todos-directory";
 const BASE_EXPANDED_ISLAND_HEIGHT = 306;
 const TODO_ARCHIVE_EXPANDED_ISLAND_HEIGHT = 352;
 const MUSIC_EXPANDED_ISLAND_HEIGHT = 286;
@@ -212,6 +205,7 @@ const DEFAULT_AGENT_TASK_STATUS: AgentTaskStatus = {
 const DEFAULT_AGENT_STATUS: AgentStatusSnapshot = {
   codex: DEFAULT_AGENT_TASK_STATUS,
   claudeCode: DEFAULT_AGENT_TASK_STATUS,
+  activeSessions: [],
   updatedAt: 0,
   statusPath: "",
 };
@@ -624,82 +618,10 @@ function getDisplayDateParts(date: string) {
   };
 }
 
-function loadCurrentTodoDate() {
-  return window.localStorage.getItem(TODO_DATE_STORAGE_KEY) ?? getLocalDateString();
-}
-
-function loadTodoArchives(): TodoArchive[] {
-  const stored = window.localStorage.getItem(TODO_ARCHIVE_STORAGE_KEY);
-
-  if (!stored) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(stored) as Partial<TodoArchive>[];
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .filter((archive) => typeof archive.date === "string" && archive.date)
-      .map((archive) => ({
-        date: archive.date ?? getLocalDateString(),
-        todos: Array.isArray(archive.todos)
-          ? archive.todos
-              .filter(
-                (todo) => typeof todo.title === "string" && todo.title.trim(),
-              )
-              .map(normalizeTodo)
-          : [],
-        dailyNote:
-          typeof archive.dailyNote === "string" ? archive.dailyNote : "",
-        savedAt: typeof archive.savedAt === "number" ? archive.savedAt : 0,
-        savedToDisk: Boolean(archive.savedToDisk),
-        filePath:
-          typeof archive.filePath === "string" ? archive.filePath : undefined,
-      }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-  } catch {
-    return [];
-  }
-}
-
-function loadSaveDirectory() {
-  return window.localStorage.getItem(TODO_SAVE_DIRECTORY_STORAGE_KEY) ?? "";
-}
-
-function loadDailyNote() {
-  return window.localStorage.getItem(DAILY_NOTE_STORAGE_KEY) ?? "";
-}
-
-function getTodoSignature(date: string, todos: TodoItem[], dailyNote: string) {
-  return JSON.stringify({
-    date,
-    todos: todos.map((todo) => ({
-      title: todo.title,
-      completed: todo.completed,
-    })),
-    dailyNote,
-  });
-}
-
 function formatTodosAsMarkdown(todos: TodoItem[]) {
   return todos
     .map((todo) => `- [${todo.completed ? "x" : " "}] ${todo.title}`)
     .join("\n");
-}
-
-function formatTodoDocumentAsMarkdown(todos: TodoItem[], dailyNote: string) {
-  const todoMarkdown = formatTodosAsMarkdown(todos);
-  const dailyMarkdown = dailyNote.trimEnd();
-
-  if (todoMarkdown && dailyMarkdown) {
-    return `${todoMarkdown}\n\n${dailyMarkdown}`;
-  }
-
-  return todoMarkdown || dailyMarkdown;
 }
 
 function createTodoId() {
@@ -718,7 +640,7 @@ function IslandShell({
   activeTaskTitle,
   pendingTodoCount,
   mediaState,
-  isAgentRunning,
+  activeSessions,
   onOpenPage,
   onCollapse,
   onMinimize,
@@ -739,12 +661,7 @@ function IslandShell({
   ]
     .filter(Boolean)
     .join(" ");
-  const pulseClassName = [
-    "island__pulse",
-    isAgentRunning
-      ? "island__pulse--agent-running"
-      : "island__pulse--agent-idle",
-  ].join(" ");
+  const isAgentRunning = activeSessions.length > 0;
   const agentStatusIconClassName = [
     "island__agent-status-icon",
     isAgentRunning
@@ -771,36 +688,50 @@ function IslandShell({
       }}
     >
       <div className="island__collapsed" aria-hidden={isExpanded}>
-        <span className={pulseClassName} />
-        {showTitle && <span className="island__brand">FocuSD</span>}
-        {activeTaskTitle ? (
-          <span className="island__active-task">
-            {showTitle ? "· " : ""}
-            {activeTaskTitle}
-          </span>
-        ) : (
-          <span className="island__todo-count">
-            {showTitle ? "· " : ""}
-            剩余{pendingTodoCount}个待办
-          </span>
-        )}
-        <MusicWaveButton
-          isAvailable={mediaState.available || mediaState.audioActive}
-          isPlaying={isMusicPlaying}
-          audioPeak={mediaState.audioPeak}
-          label="打开音乐控制"
-          onClick={() => onOpenPage("music")}
-        />
-        <button
-          className="island__quiet-button"
-          type="button"
-          title="收起"
-          aria-label="收起岛屿"
-          onClick={(event) => {
-            event.stopPropagation();
-            onTuck();
-          }}
-        />
+        <div className="island__session-dots">
+          {activeSessions.length > 0 ? (
+            activeSessions.map((s) => (
+              <span
+                key={s.sessionId}
+                className="island__session-dot island__session-dot--running"
+                title={`${s.provider}: ${s.sessionId.slice(0, 8)}`}
+              />
+            ))
+          ) : (
+            <span className="island__session-dot island__session-dot--idle" />
+          )}
+        </div>
+        <div className="island__collapsed-row">
+          {showTitle && <span className="island__brand">FocuSD</span>}
+          {activeTaskTitle ? (
+            <span className="island__active-task">
+              {showTitle ? "· " : ""}
+              {activeTaskTitle}
+            </span>
+          ) : (
+            <span className="island__todo-count">
+              {showTitle ? "· " : ""}
+              剩余{pendingTodoCount}个待办
+            </span>
+          )}
+          <MusicWaveButton
+            isAvailable={mediaState.available || mediaState.audioActive}
+            isPlaying={isMusicPlaying}
+            audioPeak={mediaState.audioPeak}
+            label="打开音乐控制"
+            onClick={() => onOpenPage("music")}
+          />
+          <button
+            className="island__quiet-button"
+            type="button"
+            title="收起"
+            aria-label="收起岛屿"
+            onClick={(event) => {
+              event.stopPropagation();
+              onTuck();
+            }}
+          />
+        </div>
       </div>
 
       <div className="island__expanded" aria-hidden={!isExpanded}>
@@ -1112,9 +1043,7 @@ function NumberControl({
 function LayoutEditor({
   settings,
   clipboardSettings,
-  saveDirectoryDraft,
-  savePathState,
-  highlightSavePath,
+  todosDirectoryDraft,
   focusClipboardShortcutToken,
   presets,
   launchAtStartup,
@@ -1124,8 +1053,8 @@ function LayoutEditor({
   onSettingsChange,
   onClipboardSettingsChange,
   onReset,
-  onSaveDirectoryDraftChange,
-  onSaveDirectory,
+  onTodosDirectoryDraftChange,
+  onSaveTodosDirectory,
   onSavePreset,
   onApplyPreset,
   onRenamePreset,
@@ -1136,9 +1065,7 @@ function LayoutEditor({
 }: {
   settings: IslandSettings;
   clipboardSettings: ClipboardHistorySettings;
-  saveDirectoryDraft: string;
-  savePathState: SavePathState;
-  highlightSavePath: boolean;
+  todosDirectoryDraft: string;
   focusClipboardShortcutToken: number;
   presets: IslandPreset[];
   launchAtStartup: boolean;
@@ -1148,8 +1075,8 @@ function LayoutEditor({
   onSettingsChange: (settings: IslandSettings) => void;
   onClipboardSettingsChange: (settings: ClipboardHistorySettings) => void;
   onReset: () => void;
-  onSaveDirectoryDraftChange: (value: string) => void;
-  onSaveDirectory: () => void;
+  onTodosDirectoryDraftChange: (value: string) => void;
+  onSaveTodosDirectory: () => void;
   onSavePreset: () => void;
   onApplyPreset: (presetId: string) => void;
   onRenamePreset: (presetId: string, name: string) => void;
@@ -1158,8 +1085,6 @@ function LayoutEditor({
   onInstallAgentHooks: () => void;
   onClipboardShortcutFocusHandled: () => void;
 }) {
-  const savePathPanelRef = useRef<HTMLElement | null>(null);
-  const savePathInputRef = useRef<HTMLInputElement | null>(null);
   const clipboardShortcutPanelRef = useRef<HTMLElement | null>(null);
   const clipboardShortcutButtonRef = useRef<HTMLButtonElement | null>(null);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
@@ -1180,27 +1105,6 @@ function LayoutEditor({
     setEditingPresetId(null);
     setPresetNameDraft("");
   }, [editingPresetId, onRenamePreset, presetNameDraft]);
-
-  useEffect(() => {
-    if (!highlightSavePath) {
-      return;
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      const editorPanel = savePathPanelRef.current?.closest(".editor-panel");
-
-      if (editorPanel instanceof HTMLElement) {
-        editorPanel.scrollTo({
-          top: editorPanel.scrollHeight,
-          behavior: "smooth",
-        });
-      }
-
-      savePathInputRef.current?.focus({ preventScroll: true });
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [highlightSavePath]);
 
   useEffect(() => {
     if (focusClipboardShortcutToken <= 0) {
@@ -1419,6 +1323,33 @@ function LayoutEditor({
         </div>
       </section>
 
+      <section className="settings-section settings-section--storage">
+        <div className="settings-section__header">
+          <span>待办文件保存目录</span>
+        </div>
+        <div className="save-path-row">
+          <label className="save-path-field">
+            <span>文件夹</span>
+            <input
+              value={todosDirectoryDraft}
+              placeholder="例如 D:\FocuSD\todos"
+              aria-label="待办文件保存目录"
+              onChange={(event) =>
+                onTodosDirectoryDraftChange(event.currentTarget.value)
+              }
+            />
+          </label>
+          <button
+            className="save-path-button"
+            type="button"
+            onClick={onSaveTodosDirectory}
+          >
+            <Save size={14} strokeWidth={2.2} />
+            <span>保存</span>
+          </button>
+        </div>
+      </section>
+
       <section className="settings-section settings-section--colors">
         <div className="settings-section__header">
           <span>颜色设置</span>
@@ -1555,140 +1486,70 @@ function LayoutEditor({
         )}
       </section>
 
-      <section
-        className={[
-          "settings-section",
-          "settings-section--storage",
-          "save-path-panel",
-          highlightSavePath ? "save-path-panel--attention" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        ref={savePathPanelRef}
-      >
-        <div className="settings-section__header save-path-panel__header">
-          <span>待办清单保存路径</span>
-        </div>
-        <div className="save-path-row">
-          <label className="save-path-field">
-            <span>文件夹</span>
-            <input
-              ref={savePathInputRef}
-              value={saveDirectoryDraft}
-              placeholder="D:/Todos"
-              aria-label="待办清单 Markdown 保存文件夹"
-              onChange={(event) =>
-                onSaveDirectoryDraftChange(event.currentTarget.value)
-              }
-            />
-          </label>
-          <button
-            className={[
-              "save-path-button",
-              savePathState === "saved" ? "save-path-button--saved" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            type="button"
-            onClick={onSaveDirectory}
-          >
-            {savePathState === "saved" ? (
-              <>
-                <Check className="save-check-icon" size={15} strokeWidth={2.6} />
-                <span>已保存</span>
-              </>
-            ) : (
-              <>
-                <Save size={14} strokeWidth={2.2} />
-                <span>保存</span>
-              </>
-            )}
-          </button>
-        </div>
-      </section>
     </div>
   );
 }
 
 function TodoNotebook({
   todos,
-  dailyNote,
   draft,
   activeTodoId,
-  currentDate,
   pageMode,
-  archives,
+  completedArchives,
   archiveLayout,
-  selectedArchive,
-  saveState,
   onDraftChange,
   onAddTodo,
   onToggleTodo,
   onUpdateTodo,
   onStartTodo,
   onDeleteTodo,
-  onSaveToday,
   onShowArchive,
-  onShowDaily,
   onShowToday,
-  onDailyNoteChange,
   onArchiveLayoutChange,
-  onSelectArchive,
 }: {
   todos: TodoItem[];
-  dailyNote: string;
   draft: string;
   activeTodoId: string | null;
-  currentDate: string;
   pageMode: TodoPageMode;
-  archives: TodoArchive[];
+  completedArchives: CompletedArchive[];
   archiveLayout: ArchiveLayout;
-  selectedArchive: TodoArchive | null;
-  saveState: SaveState;
   onDraftChange: (value: string) => void;
   onAddTodo: () => void;
   onToggleTodo: (id: string) => void;
   onUpdateTodo: (id: string, title: string) => void;
   onStartTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
-  onSaveToday: () => void;
   onShowArchive: () => void;
-  onShowDaily: () => void;
   onShowToday: () => void;
-  onDailyNoteChange: (value: string) => void;
   onArchiveLayoutChange: (layout: ArchiveLayout) => void;
-  onSelectArchive: (date: string) => void;
 }) {
-  const displayedTodos =
-    pageMode === "review" ? selectedArchive?.todos ?? [] : todos;
   const isTodayMode = pageMode === "today";
-  const isDailyMode = pageMode === "daily";
   const isArchiveMode = pageMode === "archive";
-  const isReviewMode = pageMode === "review";
-  const openCount = displayedTodos.filter((todo) => !todo.completed).length;
+  const [selectedArchiveDate, setSelectedArchiveDate] = useState<string | null>(null);
+  const openCount = todos.filter((todo) => !todo.completed).length;
   const listClassName = [
     "todo-list",
-    displayedTodos.length > TODO_SCROLL_START_ROWS ? "todo-list--scroll" : "",
+    todos.length > TODO_SCROLL_START_ROWS ? "todo-list--scroll" : "",
   ]
     .filter(Boolean)
     .join(" ");
-  const inputPlaceholder =
-    pageMode === "today"
-      ? `Add a task for ${currentDate}`
-      : "Review your todos";
   const archiveTitle =
     archiveLayout === "cards" ? "Notebook cards" : "Two-column timeline";
   const notebookClassName = [
     "todo-notebook",
-    isDailyMode ? "todo-notebook--daily" : "",
     isArchiveMode ? "todo-notebook--archive" : "",
-    isReviewMode ? "todo-notebook--review" : "",
     isArchiveMode ? `todo-notebook--archive-${archiveLayout}` : "",
   ]
     .filter(Boolean)
     .join(" ");
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [todoTitleDraft, setTodoTitleDraft] = useState("");
+
+  useEffect(() => {
+    if (isTodayMode) {
+      setSelectedArchiveDate(null);
+    }
+  }, [isTodayMode]);
 
   const startTodoTitleEdit = useCallback((todo: TodoItem) => {
     if (!isTodayMode) {
@@ -1721,49 +1582,26 @@ function TodoNotebook({
           className={[
             "todo-spine-button",
             "todo-spine-button--today",
-            isTodayMode || isDailyMode ? "todo-spine-button--active" : "",
+            isTodayMode ? "todo-spine-button--active" : "",
           ]
             .filter(Boolean)
             .join(" ")}
           type="button"
-          title="Back to today's todo list"
-          aria-label="Back to today's todo list"
+          title="Back to todo list"
+          aria-label="Back to todo list"
           onClick={onShowToday}
         />
         <button
           className={[
             "todo-spine-button",
-            "todo-spine-button--save",
-            saveState === "saved" ? "todo-spine-button--saved" : "",
-            saveState === "saving" ? "todo-spine-button--saving" : "",
-            saveState === "needs-path" || saveState === "error"
-              ? "todo-spine-button--attention"
-              : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          type="button"
-          title="Save today's todo list"
-          aria-label="Save today's todo list as markdown"
-          onClick={onSaveToday}
-        >
-          {saveState === "saved" && (
-            <Check className="save-check-icon" size={12} strokeWidth={3} />
-          )}
-        </button>
-        <button
-          className={[
-            "todo-spine-button",
             "todo-spine-button--archive",
-            pageMode === "archive" || pageMode === "review"
-              ? "todo-spine-button--active"
-              : "",
+            isArchiveMode ? "todo-spine-button--active" : "",
           ]
             .filter(Boolean)
             .join(" ")}
           type="button"
-          title="Review saved todo lists"
-          aria-label="Review saved todo lists"
+          title="Review completed todos"
+          aria-label="Review completed todos"
           onClick={onShowArchive}
         />
       </div>
@@ -1771,37 +1609,9 @@ function TodoNotebook({
       <div className="todo-notebook__topline">
         <div className="todo-notebook__title-group">
           <span className="todo-notebook__tab">
-            {isDailyMode ? (
-              <NotebookPen size={15} strokeWidth={2.1} />
-            ) : (
-              <ClipboardList size={15} strokeWidth={2.1} />
-            )}
-            {isReviewMode
-              ? selectedArchive?.date ?? "Review"
-              : isDailyMode
-                ? "DAILY"
-                : "Tasks"}
+            <ClipboardList size={15} strokeWidth={2.1} />
+            {isArchiveMode ? "Completed" : "Tasks"}
           </span>
-          {!isArchiveMode && !isReviewMode && (
-            <button
-              className={[
-                "todo-page-toggle",
-                isDailyMode ? "todo-page-toggle--active" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              type="button"
-              title={isDailyMode ? "Back to tasks" : "Open daily note"}
-              aria-label={isDailyMode ? "Back to tasks" : "Open daily note"}
-              onClick={isDailyMode ? onShowToday : onShowDaily}
-            >
-              {isDailyMode ? (
-                <ClipboardList size={14} strokeWidth={2.2} />
-              ) : (
-                <NotebookPen size={14} strokeWidth={2.2} />
-              )}
-            </button>
-          )}
         </div>
         {isArchiveMode ? (
           <div className="archive-layout-toggle" aria-label={archiveTitle}>
@@ -1829,7 +1639,7 @@ function TodoNotebook({
         )}
       </div>
 
-      {!isDailyMode && !isArchiveMode && (
+      {!isArchiveMode && (
         <form
           className="todo-form"
           onSubmit={(event) => {
@@ -1843,36 +1653,49 @@ function TodoNotebook({
           <input
             value={draft}
             disabled={!isTodayMode}
-            placeholder={inputPlaceholder}
+            placeholder="Add a task..."
             aria-label="Add a task, press Enter to save"
             onChange={(event) => onDraftChange(event.currentTarget.value)}
           />
         </form>
       )}
 
-      {isArchiveMode ? (
+      {isArchiveMode && selectedArchiveDate ? (
+        <div className="archive-detail">
+          <button
+            className="archive-detail__back"
+            type="button"
+            onClick={() => setSelectedArchiveDate(null)}
+          >
+            <ChevronUp size={14} strokeWidth={2.2} style={{ transform: "rotate(-90deg)" }} />
+            <span>Back</span>
+          </button>
+          <strong className="archive-detail__date">{selectedArchiveDate}</strong>
+          <div className="todo-list">
+            {(completedArchives
+              .find((a) => a.date === selectedArchiveDate)
+              ?.items.map((item, idx) => (
+                <div className="todo-item todo-item--done" key={idx} role="listitem">
+                  <span className="todo-check" aria-pressed={true}>
+                    <Check size={14} strokeWidth={2.5} />
+                  </span>
+                  <span className="todo-title">{item.title}</span>
+                </div>
+              )))}
+          </div>
+        </div>
+      ) : isArchiveMode ? (
         <ArchiveBrowser
-          archives={archives}
+          archives={completedArchives}
           layout={archiveLayout}
-          onSelectArchive={onSelectArchive}
-        />
-      ) : isDailyMode ? (
-        <textarea
-          className="daily-note"
-          value={dailyNote}
-          placeholder="Write today's notes..."
-          aria-label="Daily note"
-          spellCheck={false}
-          onChange={(event) => onDailyNoteChange(event.currentTarget.value)}
+          onSelectArchive={setSelectedArchiveDate}
         />
       ) : (
         <div className={listClassName} role="list">
-          {displayedTodos.length === 0 ? (
-            <div className="todo-empty">
-              {isReviewMode ? "Nothing was written here" : "今天还很轻"}
-            </div>
+          {todos.length === 0 ? (
+            <div className="todo-empty">今天还很轻</div>
           ) : (
-            displayedTodos.map((todo) => {
+            todos.map((todo) => {
               const isActive =
                 isTodayMode && todo.id === activeTodoId && !todo.completed;
               const titleLineCount = getTodoTitleLineCount(todo.title);
@@ -1883,7 +1706,6 @@ function TodoNotebook({
                     "todo-item",
                     todo.completed ? "todo-item--done" : "",
                     isActive ? "todo-item--active" : "",
-                    !isTodayMode ? "todo-item--readonly" : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
@@ -1899,7 +1721,6 @@ function TodoNotebook({
                     className="todo-check"
                     type="button"
                     aria-pressed={todo.completed}
-                    disabled={!isTodayMode}
                     title={todo.completed ? "标记未完成" : "完成"}
                     aria-label={`${todo.completed ? "标记未完成" : "完成"}：${
                       todo.title
@@ -1971,6 +1792,7 @@ function TodoNotebook({
               );
             })
           )}
+
         </div>
       )}
     </section>
@@ -1982,7 +1804,7 @@ function ArchiveBrowser({
   layout,
   onSelectArchive,
 }: {
-  archives: TodoArchive[];
+  archives: CompletedArchive[];
   layout: ArchiveLayout;
   onSelectArchive: (date: string) => void;
 }) {
@@ -1996,7 +1818,7 @@ function ArchiveBrowser({
   };
 
   if (archives.length === 0) {
-    return <div className="todo-empty">No saved lists yet</div>;
+    return <div className="todo-empty">No completed todos yet</div>;
   }
 
   if (layout === "timeline") {
@@ -2021,7 +1843,7 @@ function ArchiveBrowser({
   return (
     <div className="archive-cards" role="list" onWheel={handleHorizontalWheel}>
       {archives.map((archive) => {
-        const previewTodos = archive.todos.slice(0, 3);
+        const previewItems = archive.items.slice(0, 3);
         const dateParts = getDisplayDateParts(archive.date);
 
         return (
@@ -2032,7 +1854,7 @@ function ArchiveBrowser({
             role="listitem"
             onClick={() => onSelectArchive(archive.date)}
           >
-            <span className="archive-card__eyebrow">TODAY</span>
+            <span className="archive-card__eyebrow">COMPLETED</span>
             <strong className="archive-card__date">
               <span>{dateParts.year}</span>
               <span>
@@ -2042,18 +1864,11 @@ function ArchiveBrowser({
               </span>
             </strong>
             <span className="archive-card__preview">
-              {previewTodos.length > 0 ? (
-                previewTodos.map((todo) => (
-                  <span className="archive-card__todo" key={todo.id}>
-                    <span
-                      className={[
-                        "archive-card__todo-mark",
-                        todo.completed ? "archive-card__todo-mark--done" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                    />
-                    <span>{todo.title}</span>
+              {previewItems.length > 0 ? (
+                previewItems.map((item, idx) => (
+                  <span className="archive-card__todo" key={idx}>
+                    <span className="archive-card__todo-mark archive-card__todo-mark--done" />
+                    <span>{item.title}</span>
                   </span>
                 ))
               ) : (
@@ -2618,24 +2433,18 @@ function App() {
   const [settingPresets, setSettingPresets] =
     useState<IslandPreset[]>(loadSettingPresets);
   const [todos, setTodos] = useState<TodoItem[]>(loadTodos);
-  const [dailyNote, setDailyNote] = useState(loadDailyNote);
+  const [_completedTodos, setCompletedTodos] = useState<TodoItem[]>([]);
+  const [todosDirectory, setTodosDirectory] = useState(
+    () => window.localStorage.getItem(TODOS_DIRECTORY_STORAGE_KEY) ?? "",
+  );
+  const [todosDirectoryDraft, setTodosDirectoryDraft] = useState(todosDirectory);
   const [draftTodo, setDraftTodo] = useState("");
   const [activeTodoId, setActiveTodoId] = useState<string | null>(
     loadActiveTodoId,
   );
-  const [currentTodoDate, setCurrentTodoDate] =
-    useState<string>(loadCurrentTodoDate);
-  const [archives, setArchives] = useState<TodoArchive[]>(loadTodoArchives);
   const [todoPageMode, setTodoPageMode] = useState<TodoPageMode>("today");
   const [archiveLayout, setArchiveLayout] = useState<ArchiveLayout>("cards");
-  const [selectedArchiveDate, setSelectedArchiveDate] = useState<string | null>(
-    null,
-  );
-  const [saveDirectory, setSaveDirectory] = useState(loadSaveDirectory);
-  const [saveDirectoryDraft, setSaveDirectoryDraft] =
-    useState(loadSaveDirectory);
-  const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [savePathState, setSavePathState] = useState<SavePathState>("idle");
+  const [completedArchives, setCompletedArchives] = useState<CompletedArchive[]>([]);
   const [clipboardHistory, setClipboardHistory] =
     useState<ClipboardHistorySnapshot>(DEFAULT_CLIPBOARD_HISTORY);
   const [agentHooksInstallState, setAgentHooksInstallState] =
@@ -2646,15 +2455,11 @@ function App() {
   const [focusClipboardShortcutToken, setFocusClipboardShortcutToken] =
     useState(0);
   const clipboardShortcutToggleAt = useRef(0);
-  const didCheckDate = useRef(false);
   const didShowInitialWindow = useRef(false);
-  const selectedArchive =
-    archives.find((archive) => archive.date === selectedArchiveDate) ?? null;
-  const isTodoArchivePage =
-    page === "todo" && (todoPageMode === "archive" || todoPageMode === "review");
+  const isTodoArchivePage = page === "todo" && todoPageMode === "archive";
   const visibleTodoRows = Math.min(
     Math.max(
-      todoPageMode === "daily" || isTodoArchivePage
+      isTodoArchivePage
         ? TODO_GROW_START_ROWS
         : getTodoVisualRows(todos),
       1,
@@ -3094,14 +2899,52 @@ function App() {
     setDraftTodo("");
   }, [draftTodo]);
 
-  const toggleTodo = useCallback((id: string) => {
-    setTodos((currentTodos) =>
-      currentTodos.map((todo) =>
-        todo.id === id ? { ...todo, completed: !todo.completed } : todo,
-      ),
-    );
-    setActiveTodoId((currentId) => (currentId === id ? null : currentId));
-  }, []);
+  const toggleTodo = useCallback(
+    async (id: string) => {
+      const todo = todos.find((t) => t.id === id);
+      if (!todo) return;
+
+      if (todo.completed) {
+        // uncomplete: move back to active todos
+        const uncompleted = { ...todo, completed: false };
+        setTodos((current) => [...current, uncompleted]);
+        setCompletedTodos((current) => current.filter((t) => t.id !== id));
+        setActiveTodoId((currentId) => (currentId === id ? null : currentId));
+      } else {
+        // complete: move to completed, append to YYYY-MM-DD.md
+        const completed = { ...todo, completed: true };
+        setTodos((current) => current.filter((t) => t.id !== id));
+        setCompletedTodos((current) => [completed, ...current]);
+        setActiveTodoId((currentId) => (currentId === id ? null : currentId));
+
+        const today = getLocalDateString();
+        try {
+          await invoke("append_completed_todo", {
+            filePath: `${todosDirectory}/${today}.md`,
+            line: `- [x] ${completed.title}`,
+          });
+        } catch (error) {
+          console.error("Failed to append completed todo:", error);
+        }
+      }
+    },
+    [todos, todosDirectory],
+  );
+
+  const saveTodosToFile = useCallback(
+    async (todoList: TodoItem[]) => {
+      const content = formatTodosAsMarkdown(todoList);
+      try {
+        await invoke("save_todos", {
+          filePath: `${todosDirectory}/todos.md`,
+          content,
+        });
+      } catch (error) {
+        console.error("Failed to save todos:", error);
+      }
+    },
+    [todosDirectory],
+  );
 
   const updateTodoTitle = useCallback((id: string, title: string) => {
     const nextTitle = title.trim();
@@ -3141,163 +2984,34 @@ function App() {
     setActiveTodoId((currentId) => (currentId === id ? null : currentId));
   }, []);
 
-  const upsertArchive = useCallback(
-    (
-      date: string,
-      todoList: TodoItem[],
-      nextDailyNote: string,
-      savedToDisk: boolean,
-      filePath?: string,
-    ) => {
-      const archive: TodoArchive = {
-        date,
-        todos: todoList,
-        dailyNote: nextDailyNote,
-        savedAt: Date.now(),
-        savedToDisk,
-        filePath,
-      };
-
-      setArchives((currentArchives) =>
-        [archive, ...currentArchives.filter((item) => item.date !== date)].sort(
-          (a, b) => b.date.localeCompare(a.date),
-        ),
-      );
-    },
-    [],
-  );
-
-  const saveTodosToDisk = useCallback(
-    async (date: string, todoList: TodoItem[], nextDailyNote: string) => {
-      const directory = saveDirectory.trim();
-
-      if (!directory) {
-        throw new Error("Missing todo save path.");
-      }
-
-      const result = await invoke<SaveTodoResult>("save_todo_markdown", {
-        directory,
-        date,
-        content: formatTodoDocumentAsMarkdown(todoList, nextDailyNote),
-      });
-
-      upsertArchive(date, todoList, nextDailyNote, true, result.filePath);
-      window.localStorage.setItem(
-        TODO_LAST_SAVED_SIGNATURE_STORAGE_KEY,
-        getTodoSignature(date, todoList, nextDailyNote),
-      );
-
-      return result;
-    },
-    [saveDirectory, upsertArchive],
-  );
-
-  const saveTodayTodos = useCallback(async () => {
-    if (!saveDirectory.trim()) {
-      setSaveState("needs-path");
-      setPage("layout");
-      setMode("expanded");
-      setIsTucked(false);
-      return;
-    }
-
-    setSaveState("saving");
-
-    try {
-      await saveTodosToDisk(currentTodoDate, todos, dailyNote);
-      setSaveState("saved");
-      window.setTimeout(() => setSaveState("idle"), 1200);
-    } catch (error) {
-      console.error("Failed to save todo markdown", error);
-      setSaveState("error");
-    }
-  }, [currentTodoDate, dailyNote, saveDirectory, saveTodosToDisk, todos]);
-
-  const saveDirectoryFromEditor = useCallback(() => {
-    const nextDirectory = saveDirectoryDraft.trim();
-
-    setSaveDirectory(nextDirectory);
-    setSaveDirectoryDraft(nextDirectory);
-    setSaveState("idle");
-    setSavePathState("saved");
-    window.setTimeout(() => setSavePathState("idle"), 1200);
-  }, [saveDirectoryDraft]);
+  const saveTodosDirectory = useCallback(() => {
+    const dir = todosDirectoryDraft.trim();
+    setTodosDirectory(dir);
+    setTodosDirectoryDraft(dir);
+    window.localStorage.setItem(TODOS_DIRECTORY_STORAGE_KEY, dir);
+  }, [todosDirectoryDraft]);
 
   const showArchive = useCallback(() => {
     setTodoPageMode("archive");
-    setSelectedArchiveDate(null);
     setDraftTodo("");
+    loadCompletedArchivesFromDisk();
   }, []);
 
   const showToday = useCallback(() => {
     setTodoPageMode("today");
-    setSelectedArchiveDate(null);
     setDraftTodo("");
   }, []);
 
-  const showDaily = useCallback(() => {
-    setTodoPageMode("daily");
-    setSelectedArchiveDate(null);
-    setDraftTodo("");
+  const loadCompletedArchivesFromDisk = useCallback(async () => {
+    try {
+      const result = await invoke<CompletedArchive[]>("list_completed_archives", {
+        directory: "todos",
+      });
+      setCompletedArchives(result);
+    } catch (error) {
+      console.error("Failed to load completed archives:", error);
+    }
   }, []);
-
-  const selectArchive = useCallback(
-    (date: string) => {
-      if (date === currentTodoDate) {
-        showToday();
-        return;
-      }
-
-      setSelectedArchiveDate(date);
-      setTodoPageMode("review");
-      setDraftTodo("");
-    },
-    [currentTodoDate, showToday],
-  );
-
-  const rolloverToToday = useCallback(
-    async (nextDate: string) => {
-      const signature = getTodoSignature(currentTodoDate, todos, dailyNote);
-      const lastSavedSignature = window.localStorage.getItem(
-        TODO_LAST_SAVED_SIGNATURE_STORAGE_KEY,
-      );
-
-      if (
-        (todos.length > 0 || dailyNote.trim()) &&
-        signature !== lastSavedSignature
-      ) {
-        if (saveDirectory.trim()) {
-          try {
-            await saveTodosToDisk(currentTodoDate, todos, dailyNote);
-          } catch (error) {
-            console.error("Failed to auto-save todo markdown", error);
-            upsertArchive(currentTodoDate, todos, dailyNote, false);
-          }
-        } else {
-          upsertArchive(currentTodoDate, todos, dailyNote, false);
-        }
-      }
-
-      setTodos([]);
-      setDailyNote("");
-      setActiveTodoId(null);
-      setCurrentTodoDate(nextDate);
-      setTodoPageMode("today");
-      setSelectedArchiveDate(null);
-      window.localStorage.setItem(
-        TODO_LAST_SAVED_SIGNATURE_STORAGE_KEY,
-        getTodoSignature(nextDate, [], ""),
-      );
-    },
-    [
-      currentTodoDate,
-      dailyNote,
-      saveDirectory,
-      saveTodosToDisk,
-      todos,
-      upsertArchive,
-    ],
-  );
 
   const resetSettings = useCallback(() => {
     setSettings(DEFAULT_SETTINGS);
@@ -3469,20 +3183,44 @@ function App() {
   }, [todos]);
 
   useEffect(() => {
-    window.localStorage.setItem(DAILY_NOTE_STORAGE_KEY, dailyNote);
-  }, [dailyNote]);
+    void (async () => {
+      if (!todosDirectory) {
+        try {
+          const exeDir = await invoke<string>("get_exe_dir");
+          const dir = `${exeDir}\\todos`;
+          setTodosDirectory(dir);
+          setTodosDirectoryDraft(dir);
+        } catch (error) {
+          console.error("Failed to get exe directory:", error);
+        }
+      }
+    })();
+  }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(TODO_DATE_STORAGE_KEY, currentTodoDate);
-  }, [currentTodoDate]);
-
-  useEffect(() => {
-    window.localStorage.setItem(TODO_ARCHIVE_STORAGE_KEY, JSON.stringify(archives));
-  }, [archives]);
-
-  useEffect(() => {
-    window.localStorage.setItem(TODO_SAVE_DIRECTORY_STORAGE_KEY, saveDirectory);
-  }, [saveDirectory]);
+    if (!todosDirectory) return;
+    void (async () => {
+      try {
+        const archives = await invoke<CompletedArchive[]>("list_completed_archives", {
+          directory: todosDirectory,
+        });
+        const items: TodoItem[] = [];
+        for (const archive of archives) {
+          for (const entry of archive.items) {
+            items.push({
+              id: createTodoId(),
+              title: entry.title,
+              completed: true,
+              createdAt: Date.now(),
+            });
+          }
+        }
+        setCompletedTodos(items);
+      } catch (error) {
+        console.error("Failed to load completed todos from disk:", error);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (activeTodoId) {
@@ -3503,30 +3241,11 @@ function App() {
   }, [activeTodoId, todos]);
 
   useEffect(() => {
-    if (didCheckDate.current) {
-      return;
-    }
-
-    didCheckDate.current = true;
-    const today = getLocalDateString();
-
-    if (currentTodoDate !== today) {
-      void rolloverToToday(today);
-    }
-  }, [currentTodoDate, rolloverToToday]);
-
-  useEffect(() => {
-    const checkForNewDay = () => {
-      const today = getLocalDateString();
-
-      if (currentTodoDate !== today) {
-        void rolloverToToday(today);
-      }
-    };
-
-    const interval = window.setInterval(checkForNewDay, 30_000);
-    return () => window.clearInterval(interval);
-  }, [currentTodoDate, rolloverToToday]);
+    const debounce = window.setTimeout(() => {
+      void saveTodosToFile(todos);
+    }, 500);
+    return () => window.clearTimeout(debounce);
+  }, [todos, saveTodosToFile]);
 
   useEffect(() => {
     scheduleNativeLayout(settings);
@@ -3600,13 +3319,6 @@ function App() {
     () => todos.filter((todo) => !todo.completed).length,
     [todos],
   );
-  const isAgentRunning = useMemo(
-    () =>
-      agentStatus.codex.phase === "running" ||
-      agentStatus.claudeCode.phase === "running",
-    [agentStatus],
-  );
-
   return (
     <main className="stage" style={stageStyle}>
       <IslandShell
@@ -3617,7 +3329,7 @@ function App() {
         activeTaskTitle={activeTaskTitle}
         pendingTodoCount={openTodoCount}
         mediaState={mediaState}
-        isAgentRunning={isAgentRunning}
+        activeSessions={agentStatus.activeSessions}
         onOpenPage={openIslandPage}
         onCollapse={collapseIsland}
         onMinimize={minimizeIsland}
@@ -3629,9 +3341,7 @@ function App() {
           <LayoutEditor
             settings={settings}
             clipboardSettings={clipboardHistory.settings}
-            saveDirectoryDraft={saveDirectoryDraft}
-            savePathState={savePathState}
-            highlightSavePath={saveState === "needs-path"}
+            todosDirectoryDraft={todosDirectoryDraft}
             focusClipboardShortcutToken={focusClipboardShortcutToken}
             presets={settingPresets}
             launchAtStartup={launchAtStartup}
@@ -3641,8 +3351,8 @@ function App() {
             onSettingsChange={setSettings}
             onClipboardSettingsChange={updateClipboardSettings}
             onReset={resetSettings}
-            onSaveDirectoryDraftChange={setSaveDirectoryDraft}
-            onSaveDirectory={saveDirectoryFromEditor}
+            onTodosDirectoryDraftChange={setTodosDirectoryDraft}
+            onSaveTodosDirectory={saveTodosDirectory}
             onSavePreset={saveSettingsPreset}
             onApplyPreset={applySettingsPreset}
             onRenamePreset={renameSettingsPreset}
@@ -3671,28 +3381,20 @@ function App() {
         {page === "todo" && (
           <TodoNotebook
             todos={todos}
-            dailyNote={dailyNote}
             draft={draftTodo}
             activeTodoId={activeTodoId}
-            currentDate={currentTodoDate}
             pageMode={todoPageMode}
-            archives={archives}
+            completedArchives={completedArchives}
             archiveLayout={archiveLayout}
-            selectedArchive={selectedArchive}
-            saveState={saveState}
             onDraftChange={setDraftTodo}
             onAddTodo={addTodo}
             onToggleTodo={toggleTodo}
             onUpdateTodo={updateTodoTitle}
             onStartTodo={startTodo}
             onDeleteTodo={deleteTodo}
-            onSaveToday={saveTodayTodos}
             onShowArchive={showArchive}
-            onShowDaily={showDaily}
             onShowToday={showToday}
-            onDailyNoteChange={setDailyNote}
             onArchiveLayoutChange={setArchiveLayout}
-            onSelectArchive={selectArchive}
           />
         )}
       </IslandShell>

@@ -85,16 +85,22 @@ function Get-AgentMarkerNames {
     [string]$Provider
   )
 
+  $sessionId = $env:FOCUSD_SESSION_ID
+
   if ($Provider -eq "codex") {
-    return @{
-      Running = "agent-codex-running.flag"
-      Hold = "agent-codex-running-hold.flag"
-    }
+    $base = "agent-codex"
+  } else {
+    $base = "agent-claudeCode"
+  }
+
+  if ($sessionId) {
+    $runningName = "${base}-${sessionId}-running.flag"
+  } else {
+    $runningName = "${base}-running.flag"
   }
 
   return @{
-    Running = "agent-claudeCode-running.flag"
-    Hold = "agent-claudeCode-running-hold.flag"
+    Running = $runningName
   }
 }
 
@@ -102,37 +108,18 @@ function Update-AgentRunningMarkers {
   param(
     [string]$Provider,
     [string]$Phase,
-    [string]$StatusDirectory,
-    [long]$Now,
-    [int]$MinimumRunningVisibleMs
+    [string]$StatusDirectory
   )
 
   $markerNames = Get-AgentMarkerNames -Provider $Provider
   $runningPath = Join-Path $StatusDirectory $markerNames.Running
-  $holdPath = Join-Path $StatusDirectory $markerNames.Hold
 
   if ($Phase -eq "running") {
     [System.IO.File]::WriteAllText($runningPath, "", [System.Text.UTF8Encoding]::new($false))
-    Remove-Item -LiteralPath $holdPath -Force -ErrorAction SilentlyContinue
     return
   }
 
-  $visibleUntil = 0
-  if (Test-Path -LiteralPath $runningPath) {
-    $markerUpdatedAt = [DateTimeOffset](Get-Item -LiteralPath $runningPath).LastWriteTimeUtc
-    $elapsedMs = [Math]::Max(0, $Now - $markerUpdatedAt.ToUnixTimeMilliseconds())
-    $remainingMs = [Math]::Max(0, $MinimumRunningVisibleMs - $elapsedMs)
-    if ($remainingMs -gt 0) {
-      $visibleUntil = $Now + $remainingMs
-    }
-  }
-
   Remove-Item -LiteralPath $runningPath -Force -ErrorAction SilentlyContinue
-  if ($visibleUntil -gt $Now) {
-    [System.IO.File]::WriteAllText($holdPath, [string]$visibleUntil, [System.Text.UTF8Encoding]::new($false))
-  } else {
-    Remove-Item -LiteralPath $holdPath -Force -ErrorAction SilentlyContinue
-  }
 }
 
 if (-not $StatusPath) {
@@ -176,7 +163,7 @@ try {
 
   $statusDirectory = Split-Path -Parent $StatusPath
   New-Item -ItemType Directory -Force -Path $statusDirectory | Out-Null
-  Update-AgentRunningMarkers -Provider $Provider -Phase $Phase -StatusDirectory $statusDirectory -Now $now -MinimumRunningVisibleMs $MinimumRunningVisibleMs
+  Update-AgentRunningMarkers -Provider $Provider -Phase $Phase -StatusDirectory $statusDirectory
 
   $json = $state | ConvertTo-Json -Depth 5
   $temporaryPath = "$StatusPath.tmp"

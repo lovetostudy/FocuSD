@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::{
     env, fs,
+    io::Write,
     os::windows::process::CommandExt,
     path::{Path, PathBuf},
     process::Command,
@@ -52,17 +53,17 @@ const STARTUP_REGISTRY_VALUE: &str = "FocuSD Island";
 const AUDIO_ACTIVE_THRESHOLD: f32 = 0.000015;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const AGENT_STATUS_FILE_NAME: &str = "agent-status.json";
-const CODEX_RUNNING_MARKER_FILE_NAME: &str = "agent-codex-running.flag";
-const CODEX_RUNNING_HOLD_FILE_NAME: &str = "agent-codex-running-hold.flag";
-const CLAUDE_CODE_RUNNING_MARKER_FILE_NAME: &str = "agent-claudeCode-running.flag";
-const CLAUDE_CODE_RUNNING_HOLD_FILE_NAME: &str = "agent-claudeCode-running-hold.flag";
-const AGENT_RUNNING_SCRIPT_FILE_NAME: &str = "focusd-agent-running.cmd";
+const AGENT_RUNNING_FLAG_PREFIX: &str = "agent-";
+const AGENT_RUNNING_FLAG_SUFFIX: &str = "-running.flag";
+const AGENT_RUNNING_SCRIPT_FILE_NAME: &str = "focusd-agent-running.ps1";
 const AGENT_STATUS_SCRIPT_FILE_NAME: &str = "focusd-agent-status.ps1";
+const AGENT_SESSION_START_SCRIPT_FILE_NAME: &str = "focusd-agent-session-start.ps1";
 const FOCUSD_AGENT_HOOK_BLOCK_BEGIN: &str = "# BEGIN FocuSD Agent Status Hooks";
 const FOCUSD_AGENT_HOOK_BLOCK_END: &str = "# END FocuSD Agent Status Hooks";
 const FOCUSD_AGENT_HOOK_SIGNATURE: &str = "focusd-agent-";
-const AGENT_RUNNING_SCRIPT: &str = include_str!("../../scripts/focusd-agent-running.cmd");
+const AGENT_RUNNING_SCRIPT: &str = include_str!("../../scripts/focusd-agent-running.ps1");
 const AGENT_STATUS_SCRIPT: &str = include_str!("../../scripts/focusd-agent-status.ps1");
+const AGENT_SESSION_START_SCRIPT: &str = include_str!("../../scripts/focusd-agent-session-start.ps1");
 
 static WINDOW_STATE: OnceLock<Mutex<IslandWindowState>> = OnceLock::new();
 
@@ -124,10 +125,17 @@ struct IslandLayout {
     margin_y: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SaveTodoMarkdownResult {
-    file_path: String,
+struct CompletedArchiveEntry {
+    title: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CompletedArchive {
+    date: String,
+    items: Vec<CompletedArchiveEntry>,
 }
 
 #[derive(Debug, Serialize)]
@@ -184,11 +192,19 @@ struct PersistedAgentStatus {
     updated_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentSessionInfo {
+    session_id: String,
+    provider: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentStatusSnapshot {
     codex: AgentTaskStatus,
     claude_code: AgentTaskStatus,
+    active_sessions: Vec<AgentSessionInfo>,
     updated_at: i64,
     status_path: String,
 }
@@ -315,30 +331,96 @@ fn set_launch_at_startup(enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn save_todo_markdown(
-    directory: String,
-    date: String,
-    content: String,
-) -> Result<SaveTodoMarkdownResult, String> {
-    let directory = directory.trim();
+fn save_todos(file_path: String, content: String) -> Result<(), String> {
+    let path = PathBuf::from(file_path.trim());
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(&path, content).map_err(|error| error.to_string())
+}
 
-    if directory.is_empty() {
-        return Err("Todo save path is empty.".to_string());
+#[tauri::command]
+fn append_completed_todo(file_path: String, line: String) -> Result<(), String> {
+    let path = PathBuf::from(file_path.trim());
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    writeln!(file, "{}", line).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn list_completed_archives(directory: String) -> Result<Vec<CompletedArchive>, String> {
+    let dir = PathBuf::from(directory.trim());
+    let mut archives: Vec<CompletedArchive> = Vec::new();
+
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(archives),
+    };
+
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        // Match YYYY-MM-DD.md
+        if name.len() != 13 || !name.ends_with(".md") {
+            continue;
+        }
+        let date_part = &name[..10];
+        if !is_date_string(date_part) {
+            continue;
+        }
+        let content = fs::read_to_string(entry.path()).unwrap_or_default();
+        let items: Vec<CompletedArchiveEntry> = content
+            .lines()
+            .filter_map(|line| {
+                let stripped = line.strip_prefix("- [x] ")?;
+                let title = stripped.trim().to_string();
+                if title.is_empty() {
+                    None
+                } else {
+                    Some(CompletedArchiveEntry { title })
+                }
+            })
+            .collect();
+        if !items.is_empty() {
+            archives.push(CompletedArchive {
+                date: date_part.to_string(),
+                items,
+            });
+        }
     }
 
-    if !date.chars().all(|ch| ch.is_ascii_digit() || ch == '-') {
-        return Err("Todo date contains invalid filename characters.".to_string());
+    archives.sort_by(|a, b| b.date.cmp(&a.date));
+    Ok(archives)
+}
+
+#[tauri::command]
+fn get_exe_dir() -> Result<String, String> {
+    let exe = env::current_exe().map_err(|e| e.to_string())?;
+    let dir = exe.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    Ok(dir)
+}
+
+fn is_date_string(s: &str) -> bool {
+    if s.len() != 10 {
+        return false;
     }
-
-    let directory_path = PathBuf::from(directory);
-    fs::create_dir_all(&directory_path).map_err(|error| error.to_string())?;
-
-    let file_path = directory_path.join(format!("{date}.md"));
-    fs::write(&file_path, content).map_err(|error| error.to_string())?;
-
-    Ok(SaveTodoMarkdownResult {
-        file_path: file_path.to_string_lossy().to_string(),
-    })
+    let bytes = s.as_bytes();
+    bytes[0].is_ascii_digit()
+        && bytes[1].is_ascii_digit()
+        && bytes[2].is_ascii_digit()
+        && bytes[3].is_ascii_digit()
+        && bytes[4] == b'-'
+        && bytes[5].is_ascii_digit()
+        && bytes[6].is_ascii_digit()
+        && bytes[7] == b'-'
+        && bytes[8].is_ascii_digit()
+        && bytes[9].is_ascii_digit()
 }
 
 #[tauri::command]
@@ -377,6 +459,7 @@ fn install_agent_status_hooks(app: AppHandle) -> Result<AgentHooksInstallResult,
 
     let running_script_path = app_dir.join(AGENT_RUNNING_SCRIPT_FILE_NAME);
     let status_script_path = app_dir.join(AGENT_STATUS_SCRIPT_FILE_NAME);
+    let session_start_script_path = app_dir.join(AGENT_SESSION_START_SCRIPT_FILE_NAME);
     let home_dir = windows_home_dir()?;
     let codex_config_path = home_dir.join(".codex").join("config.toml");
     let claude_config_path = home_dir.join(".claude").join("settings.json");
@@ -390,6 +473,7 @@ fn install_agent_status_hooks(app: AppHandle) -> Result<AgentHooksInstallResult,
         &claude_config_path,
         &running_script_path,
         &status_script_path,
+        &session_start_script_path,
     )?;
 
     Ok(AgentHooksInstallResult {
@@ -457,6 +541,7 @@ fn default_agent_status_snapshot(status_path: String) -> AgentStatusSnapshot {
     AgentStatusSnapshot {
         codex: AgentTaskStatus::default(),
         claude_code: AgentTaskStatus::default(),
+        active_sessions: Vec::new(),
         updated_at: current_unix_millis(),
         status_path,
     }
@@ -469,6 +554,7 @@ fn agent_status_snapshot_from_persisted(
     AgentStatusSnapshot {
         codex: normalize_agent_task_status(persisted.codex),
         claude_code: normalize_agent_task_status(persisted.claude_code),
+        active_sessions: Vec::new(),
         updated_at: if persisted.updated_at > 0 {
             persisted.updated_at
         } else {
@@ -479,60 +565,52 @@ fn agent_status_snapshot_from_persisted(
 }
 
 fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapshot) {
-    let now = current_unix_millis();
+    let mut active_sessions: Vec<AgentSessionInfo> = Vec::new();
+    let mut has_codex = false;
+    let mut has_claude_code = false;
 
-    if let Some(updated_at) = active_agent_running_marker_time(
-        app_dir,
-        &snapshot.codex,
-        CODEX_RUNNING_MARKER_FILE_NAME,
-        CODEX_RUNNING_HOLD_FILE_NAME,
-        now,
-    ) {
-        snapshot.codex.phase = "running".to_string();
-        snapshot.codex.updated_at = updated_at;
-    }
+    if let Ok(entries) = fs::read_dir(app_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !name.starts_with(AGENT_RUNNING_FLAG_PREFIX) || !name.ends_with(AGENT_RUNNING_FLAG_SUFFIX) {
+                continue;
+            }
+            // Parse: agent-{provider}-{session_id}-running.flag
+            //       or agent-{provider}-running.flag (legacy, no session_id)
+            let core = &name[AGENT_RUNNING_FLAG_PREFIX.len()..name.len() - AGENT_RUNNING_FLAG_SUFFIX.len()];
+            let (provider, session_id) = if let Some(idx) = core.find('-') {
+                // Has session_id: agent-claudeCode-abc123-running.flag
+                let prov = core[..idx].to_string();
+                let sid = core[idx + 1..].to_string();
+                (prov, sid)
+            } else {
+                // Legacy: agent-claudeCode-running.flag (no session_id)
+                (core.to_string(), String::new())
+            };
 
-    if let Some(updated_at) = active_agent_running_marker_time(
-        app_dir,
-        &snapshot.claude_code,
-        CLAUDE_CODE_RUNNING_MARKER_FILE_NAME,
-        CLAUDE_CODE_RUNNING_HOLD_FILE_NAME,
-        now,
-    ) {
-        snapshot.claude_code.phase = "running".to_string();
-        snapshot.claude_code.updated_at = updated_at;
-    }
-}
+            active_sessions.push(AgentSessionInfo {
+                session_id: if session_id.is_empty() { "default".to_string() } else { session_id },
+                provider: provider.clone(),
+            });
 
-fn active_agent_running_marker_time(
-    app_dir: &Path,
-    status: &AgentTaskStatus,
-    running_file_name: &str,
-    hold_file_name: &str,
-    now: i64,
-) -> Option<i64> {
-    let running_path = app_dir.join(running_file_name);
-    if running_path.is_file() {
-        let marker_updated_at = file_modified_unix_millis(&running_path).unwrap_or(now);
-        if status.phase != "running"
-            && status.updated_at > 0
-            && status.updated_at >= marker_updated_at
-        {
-            return None;
+            if provider.starts_with("codex") {
+                has_codex = true;
+            } else if provider.starts_with("claudeCode") {
+                has_claude_code = true;
+            }
         }
-
-        return Some(marker_updated_at);
     }
 
-    let hold_path = app_dir.join(hold_file_name);
-    let visible_until = fs::read_to_string(hold_path)
-        .ok()
-        .and_then(|content| content.trim().parse::<i64>().ok())?;
-    if visible_until > now {
-        Some(now)
-    } else {
-        None
+    if has_codex {
+        snapshot.codex.phase = "running".to_string();
+        snapshot.codex.updated_at = current_unix_millis();
     }
+    if has_claude_code {
+        snapshot.claude_code.phase = "running".to_string();
+        snapshot.claude_code.updated_at = current_unix_millis();
+    }
+    snapshot.active_sessions = active_sessions;
 }
 
 fn normalize_agent_task_status(mut status: AgentTaskStatus) -> AgentTaskStatus {
@@ -554,6 +632,10 @@ fn install_agent_hook_scripts(app_dir: &Path) -> Result<(), String> {
     write_text_file(
         &app_dir.join(AGENT_STATUS_SCRIPT_FILE_NAME),
         &normalize_windows_line_endings(AGENT_STATUS_SCRIPT),
+    )?;
+    write_text_file(
+        &app_dir.join(AGENT_SESSION_START_SCRIPT_FILE_NAME),
+        &normalize_windows_line_endings(AGENT_SESSION_START_SCRIPT),
     )
 }
 
@@ -578,6 +660,7 @@ fn install_claude_code_status_hooks(
     config_path: &Path,
     running_script_path: &Path,
     status_script_path: &Path,
+    session_start_script_path: &Path,
 ) -> Result<(), String> {
     let mut config = match fs::read_to_string(config_path) {
         Ok(content) if !content.trim().is_empty() => serde_json::from_str::<Value>(&content)
@@ -599,6 +682,11 @@ fn install_claude_code_status_hooks(
         .as_object_mut()
         .ok_or_else(|| "Failed to prepare Claude Code hooks object.".to_string())?;
 
+    install_claude_code_hook_event(
+        hooks,
+        "SessionStart",
+        claude_code_session_start_hook_entry(session_start_script_path),
+    );
     install_claude_code_hook_event(
         hooks,
         "UserPromptSubmit",
@@ -681,12 +769,14 @@ fn claude_code_match_all_hook_entry(mut entry: Value) -> Value {
 
 fn claude_code_running_hook_entry(script_path: &Path) -> Value {
     claude_code_hook_entry(
-        "cmd.exe",
+        "powershell.exe",
         vec![
-            "/d".to_string(),
-            "/s".to_string(),
-            "/c".to_string(),
-            format!("\"{}\" claudeCode", script_path.to_string_lossy()),
+            "-NoProfile".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-File".to_string(),
+            script_path.to_string_lossy().to_string(),
+            "claudeCode".to_string(),
         ],
         1,
     )
@@ -706,6 +796,25 @@ fn claude_code_status_hook_entry(script_path: &Path, phase: &str) -> Value {
         ],
         5,
     )
+}
+
+fn claude_code_session_start_hook_entry(script_path: &Path) -> Value {
+    json!({
+        "hooks": [
+            {
+                "type": "command",
+                "command": "powershell.exe",
+                "args": [
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    script_path.to_string_lossy(),
+                ],
+                "timeout": 5
+            }
+        ]
+    })
 }
 
 fn claude_code_hook_entry(command: &str, args: Vec<String>, timeout: i64) -> Value {
@@ -988,11 +1097,6 @@ fn send_media_key(key: VIRTUAL_KEY) {
     }
 }
 
-fn file_modified_unix_millis(path: &Path) -> Option<i64> {
-    let modified = fs::metadata(path).ok()?.modified().ok()?;
-    system_time_to_unix_millis(modified)
-}
-
 fn current_unix_millis() -> i64 {
     system_time_to_unix_millis(SystemTime::now()).unwrap_or_default()
 }
@@ -1230,7 +1334,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_island_layout,
             set_island_interaction,
-            save_todo_markdown,
+            get_exe_dir,
+            save_todos,
+            append_completed_todo,
+            list_completed_archives,
             show_ready_island,
             minimize_island,
             get_launch_at_startup,
