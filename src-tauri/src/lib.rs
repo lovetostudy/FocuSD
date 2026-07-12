@@ -346,6 +346,20 @@ fn read_todos_file(file_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn list_todos_files(directory: String) -> Result<Vec<String>, String> {
+    let dir = PathBuf::from(directory.trim());
+    let mut files = Vec::new();
+    let entries = fs::read_dir(&dir).map_err(|error| error.to_string())?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.ends_with(".md") {
+            files.push(name);
+        }
+    }
+    Ok(files)
+}
+
+#[tauri::command]
 fn append_completed_todo(file_path: String, line: String) -> Result<(), String> {
     let path = PathBuf::from(file_path.trim());
     if let Some(parent) = path.parent() {
@@ -1344,6 +1358,7 @@ pub fn run() {
             save_todos,
             append_completed_todo,
             list_completed_archives,
+            list_todos_files,
             show_ready_island,
             minimize_island,
             read_todos_file,

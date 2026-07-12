@@ -180,6 +180,8 @@ const ACTIVE_TODO_STORAGE_KEY = "focusd-island-active-todo";
 const TODOS_DIRECTORY_STORAGE_KEY = "focusd-island-todos-directory";
 const DEFAULT_CATEGORY = "TASKS";
 const CATEGORY_NAMES_STORAGE_KEY = "focusd-island-categories";
+const SYNC_URL_STORAGE_KEY = "focusd-island-sync-url";
+const SYNC_DEVICE_ID_KEY = "focusd-island-device-id";
 const BASE_EXPANDED_ISLAND_HEIGHT = 306;
 const TODO_ARCHIVE_EXPANDED_ISLAND_HEIGHT = 352;
 const MUSIC_EXPANDED_ISLAND_HEIGHT = 286;
@@ -723,6 +725,55 @@ function createTodoId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function getDeviceId(): string {
+  let id = window.localStorage.getItem(SYNC_DEVICE_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    window.localStorage.setItem(SYNC_DEVICE_ID_KEY, id);
+  }
+  return id;
+}
+
+async function pullFromServer(url: string): Promise<Record<string, string>> {
+  const res = await fetch(`${url}/sync`);
+  if (!res.ok) throw new Error(`pull failed: ${res.status}`);
+  const data = await res.json();
+  return data.files as Record<string, string>;
+}
+
+async function pushToServer(url: string, files: Record<string, string>) {
+  const res = await fetch(`${url}/sync`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files, deviceId: getDeviceId() }),
+  });
+  if (!res.ok) throw new Error(`push failed: ${res.status}`);
+}
+
+async function readAllLocalFiles(dir: string): Promise<Record<string, string>> {
+  const names: string[] = await invoke("list_todos_files", { directory: dir });
+  const result: Record<string, string> = {};
+  for (const name of names) {
+    try {
+      result[name] = await invoke<string>("read_todos_file", {
+        filePath: `${dir}/${name}`,
+      });
+    } catch {
+      /* skip unreadable */
+    }
+  }
+  return result;
+}
+
+async function writeAllLocalFiles(
+  dir: string,
+  files: Record<string, string>,
+) {
+  for (const [name, content] of Object.entries(files)) {
+    await invoke("save_todos", { filePath: `${dir}/${name}`, content });
+  }
+}
+
 function IslandShell({
   mode,
   page,
@@ -1153,6 +1204,9 @@ function LayoutEditor({
   onLaunchAtStartupChange,
   onInstallAgentHooks,
   onClipboardShortcutFocusHandled,
+  syncServerUrl,
+  onSyncServerUrlChange,
+  onSyncNow,
 }: {
   settings: IslandSettings;
   clipboardSettings: ClipboardHistorySettings;
@@ -1175,6 +1229,9 @@ function LayoutEditor({
   onLaunchAtStartupChange: (enabled: boolean) => void;
   onInstallAgentHooks: () => void;
   onClipboardShortcutFocusHandled: () => void;
+  syncServerUrl: string;
+  onSyncServerUrlChange: (url: string) => void;
+  onSyncNow: () => void;
 }) {
   const clipboardShortcutPanelRef = useRef<HTMLElement | null>(null);
   const clipboardShortcutButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -1439,6 +1496,36 @@ function LayoutEditor({
             <span>保存</span>
           </button>
         </div>
+      </section>
+
+      <section className="settings-section settings-section--sync">
+        <div className="settings-section__header">
+          <span>多设备同步</span>
+        </div>
+        <div className="save-path-row">
+          <label className="save-path-field">
+            <span>服务器地址</span>
+            <input
+              value={syncServerUrl}
+              placeholder="例如 http://192.168.1.100:3456"
+              aria-label="同步服务器地址"
+              onChange={(event) =>
+                onSyncServerUrlChange(event.currentTarget.value)
+              }
+            />
+          </label>
+          <button
+            className="save-path-button"
+            type="button"
+            onClick={onSyncNow}
+          >
+            <Save size={14} strokeWidth={2.2} />
+            <span>同步</span>
+          </button>
+        </div>
+        <p className="settings-hint" style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+          设备标识：{getDeviceId()} &nbsp;|&nbsp; 留空服务器地址则不同步
+        </p>
       </section>
 
       <section className="settings-section settings-section--colors">
@@ -2645,6 +2732,9 @@ function App() {
       return [];
     }
   });
+  const [syncServerUrl, setSyncServerUrl] = useState(
+    () => window.localStorage.getItem(SYNC_URL_STORAGE_KEY) ?? "",
+  );
   const [activeTodoId, setActiveTodoId] = useState<string | null>(
     loadActiveTodoId,
   );
@@ -3149,10 +3239,26 @@ function App() {
         } catch (error) {
           console.error("Failed to append completed todo:", error);
         }
+        scheduleSyncPush();
       }
     },
     [todos, todosDirectory],
   );
+
+  const syncPushTimer = useRef<number | null>(null);
+
+  const scheduleSyncPush = useCallback(() => {
+    if (!syncServerUrl || !todosDirectory) return;
+    if (syncPushTimer.current) clearTimeout(syncPushTimer.current);
+    syncPushTimer.current = window.setTimeout(async () => {
+      try {
+        const files = await readAllLocalFiles(todosDirectory);
+        await pushToServer(syncServerUrl, files);
+      } catch {
+        // push failed → silent, server will overwrite on next startup pull
+      }
+    }, 1000);
+  }, [syncServerUrl, todosDirectory]);
 
   const saveTodosToFile = useCallback(
     async (todoList: TodoItem[]) => {
@@ -3165,6 +3271,7 @@ function App() {
       } catch (error) {
         console.error("Failed to save todos:", error);
       }
+      scheduleSyncPush();
     },
     [todosDirectory, categoryNames],
   );
@@ -3213,6 +3320,35 @@ function App() {
     setTodosDirectoryDraft(dir);
     window.localStorage.setItem(TODOS_DIRECTORY_STORAGE_KEY, dir);
   }, [todosDirectoryDraft]);
+
+  const handleSyncServerUrlChange = useCallback((url: string) => {
+    setSyncServerUrl(url);
+    window.localStorage.setItem(SYNC_URL_STORAGE_KEY, url);
+  }, []);
+
+  const handleSyncNow = useCallback(() => {
+    if (!syncServerUrl || !todosDirectory) return;
+    void (async () => {
+      try {
+        // pull first
+        const files = await pullFromServer(syncServerUrl);
+        if (files && Object.keys(files).length > 0) {
+          await writeAllLocalFiles(todosDirectory, files);
+          const todosContent = files["todos.md"];
+          if (todosContent) {
+            setTodos(parseTodosFromMarkdown(todosContent));
+            const cats = parseCategoriesFromMarkdown(todosContent);
+            if (cats.length > 0) setCategoryNames(cats);
+          }
+        }
+        // then push local
+        const local = await readAllLocalFiles(todosDirectory);
+        await pushToServer(syncServerUrl, local);
+      } catch {
+        // silent
+      }
+    })();
+  }, [syncServerUrl, todosDirectory]);
 
   const showArchive = useCallback(() => {
     setTodoPageMode("archive");
@@ -3472,6 +3608,33 @@ function App() {
     })();
   }, [todosDirectory]);
 
+  // Pull from sync server on startup (after local file load)
+  useEffect(() => {
+    if (!todosDirectory || !syncServerUrl) return;
+    void (async () => {
+      try {
+        const files = await pullFromServer(syncServerUrl);
+        if (files && Object.keys(files).length > 0) {
+          await writeAllLocalFiles(todosDirectory, files);
+          const todosContent = files["todos.md"];
+          if (todosContent) {
+            setTodos(parseTodosFromMarkdown(todosContent));
+            const cats = parseCategoriesFromMarkdown(todosContent);
+            if (cats.length > 0) {
+              setCategoryNames(cats);
+              window.localStorage.setItem(
+                CATEGORY_NAMES_STORAGE_KEY,
+                JSON.stringify(cats),
+              );
+            }
+          }
+        }
+      } catch {
+        // network error → keep local data
+      }
+    })();
+  }, [todosDirectory, syncServerUrl]);
+
   useEffect(() => {
     if (activeTodoId) {
       window.localStorage.setItem(ACTIVE_TODO_STORAGE_KEY, activeTodoId);
@@ -3610,6 +3773,9 @@ function App() {
             onLaunchAtStartupChange={updateLaunchAtStartup}
             onInstallAgentHooks={installAgentHooks}
             onClipboardShortcutFocusHandled={clearClipboardShortcutFocus}
+            syncServerUrl={syncServerUrl}
+            onSyncServerUrlChange={handleSyncServerUrlChange}
+            onSyncNow={handleSyncNow}
           />
         )}
         {page === "music" && (
