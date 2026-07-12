@@ -50,6 +50,7 @@ type TodoItem = {
   title: string;
   completed: boolean;
   createdAt: number;
+  category: string;
 };
 
 type CompletedArchiveEntry = {
@@ -177,6 +178,8 @@ const SETTINGS_PRESETS_STORAGE_KEY = "focusd-island-setting-presets";
 const TODOS_STORAGE_KEY = "focusd-island-todos";
 const ACTIVE_TODO_STORAGE_KEY = "focusd-island-active-todo";
 const TODOS_DIRECTORY_STORAGE_KEY = "focusd-island-todos-directory";
+const DEFAULT_CATEGORY = "TASKS";
+const CATEGORY_NAMES_STORAGE_KEY = "focusd-island-categories";
 const BASE_EXPANDED_ISLAND_HEIGHT = 306;
 const TODO_ARCHIVE_EXPANDED_ISLAND_HEIGHT = 352;
 const MUSIC_EXPANDED_ISLAND_HEIGHT = 286;
@@ -562,6 +565,10 @@ function normalizeTodo(todo: Partial<TodoItem>): TodoItem {
     title: todo.title?.trim() ?? "",
     completed: Boolean(todo.completed),
     createdAt: typeof todo.createdAt === "number" ? todo.createdAt : Date.now(),
+    category:
+      typeof todo.category === "string" && todo.category.trim()
+        ? todo.category.trim()
+        : DEFAULT_CATEGORY,
   };
 }
 
@@ -582,6 +589,18 @@ function loadTodos(): TodoItem[] {
     return parsed
       .filter((todo) => typeof todo.title === "string" && todo.title.trim())
       .map(normalizeTodo);
+  } catch {
+    return [];
+  }
+}
+
+async function loadTodosFromFile(dirPath: string): Promise<TodoItem[]> {
+  try {
+    const content = await invoke<string>("read_todos_file", {
+      filePath: `${dirPath}/todos.md`,
+    });
+    if (!content.trim()) return [];
+    return parseTodosFromMarkdown(content);
   } catch {
     return [];
   }
@@ -618,10 +637,82 @@ function getDisplayDateParts(date: string) {
   };
 }
 
-function formatTodosAsMarkdown(todos: TodoItem[]) {
-  return todos
-    .map((todo) => `- [${todo.completed ? "x" : " "}] ${todo.title}`)
-    .join("\n");
+function formatTodosAsMarkdown(todos: TodoItem[], categoryNames: string[]) {
+  const byCategory: Record<string, TodoItem[]> = {};
+
+  for (const todo of todos) {
+    if (!byCategory[todo.category]) {
+      byCategory[todo.category] = [];
+    }
+    byCategory[todo.category].push(todo);
+  }
+
+  // Collect all known categories: from todos + from persisted categoryNames
+  const allKnown = new Set<string>();
+  allKnown.add(DEFAULT_CATEGORY);
+  for (const name of categoryNames) allKnown.add(name);
+  for (const key of Object.keys(byCategory)) allKnown.add(key);
+
+  // TASKS first, then alphabetical for the rest
+  const sortedOrder = [DEFAULT_CATEGORY];
+  for (const name of [...allKnown].sort()) {
+    if (name !== DEFAULT_CATEGORY) sortedOrder.push(name);
+  }
+
+  const sections: string[] = [];
+  for (const category of sortedOrder) {
+    sections.push(`## ${category}`);
+    const items = byCategory[category] || [];
+    for (const todo of items) {
+      sections.push(`- [${todo.completed ? "x" : " "}] ${todo.title}`);
+    }
+    sections.push("");
+  }
+
+  return sections.join("\n").trimEnd();
+}
+
+function parseTodosFromMarkdown(markdown: string): TodoItem[] {
+  const todos: TodoItem[] = [];
+  const lines = markdown.split("\n");
+  let currentCategory: string = DEFAULT_CATEGORY;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+
+    if (trimmed.startsWith("## ")) {
+      currentCategory = trimmed.slice(3).trim();
+      continue;
+    }
+
+    const taskMatch = trimmed.match(/^- \[([ x])\] (.+)$/);
+    if (taskMatch) {
+      todos.push({
+        id: createTodoId(),
+        title: taskMatch[2].trim(),
+        completed: taskMatch[1] === "x",
+        createdAt: Date.now(),
+        category: currentCategory,
+      });
+    }
+  }
+
+  return todos;
+}
+
+function parseCategoriesFromMarkdown(markdown: string): string[] {
+  const categories: string[] = [];
+  for (const line of markdown.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("## ")) {
+      const name = trimmed.slice(3).trim();
+      if (name && !categories.includes(name)) {
+        categories.push(name);
+      }
+    }
+  }
+  return categories;
 }
 
 function createTodoId() {
@@ -1497,6 +1588,8 @@ function TodoNotebook({
   pageMode,
   completedArchives,
   archiveLayout,
+  activeCategory,
+  categoryNames,
   onDraftChange,
   onAddTodo,
   onToggleTodo,
@@ -1506,6 +1599,8 @@ function TodoNotebook({
   onShowArchive,
   onShowToday,
   onArchiveLayoutChange,
+  onCategoryChange,
+  onAddCategory,
 }: {
   todos: TodoItem[];
   draft: string;
@@ -1513,6 +1608,8 @@ function TodoNotebook({
   pageMode: TodoPageMode;
   completedArchives: CompletedArchive[];
   archiveLayout: ArchiveLayout;
+  activeCategory: string;
+  categoryNames: string[];
   onDraftChange: (value: string) => void;
   onAddTodo: () => void;
   onToggleTodo: (id: string) => void;
@@ -1522,14 +1619,49 @@ function TodoNotebook({
   onShowArchive: () => void;
   onShowToday: () => void;
   onArchiveLayoutChange: (layout: ArchiveLayout) => void;
+  onCategoryChange: (category: string) => void;
+  onAddCategory: (category: string) => void;
 }) {
   const isTodayMode = pageMode === "today";
   const isArchiveMode = pageMode === "archive";
   const [selectedArchiveDate, setSelectedArchiveDate] = useState<string | null>(null);
-  const openCount = todos.filter((todo) => !todo.completed).length;
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [categoryDraft, setCategoryDraft] = useState("");
+
+  // Derive category tabs: all known categories, TASKS always first
+  const categoryTabs: { name: string; count: number }[] = useMemo(() => {
+    const countMap: Record<string, number> = {};
+    for (const todo of todos) {
+      if (!todo.completed) {
+        countMap[todo.category] = (countMap[todo.category] || 0) + 1;
+      }
+    }
+    // Merge: file-derived categories + user-added categories + todos categories
+    const allNames = new Set<string>();
+    allNames.add(DEFAULT_CATEGORY);
+    for (const name of categoryNames) allNames.add(name);
+    for (const key of Object.keys(countMap)) allNames.add(key);
+
+    const ordered: string[] = [DEFAULT_CATEGORY];
+    for (const name of [...allNames].sort()) {
+      if (name !== DEFAULT_CATEGORY) ordered.push(name);
+    }
+    return ordered.map((name) => ({ name, count: countMap[name] || 0 }));
+  }, [todos, categoryNames]);
+
+  // Filter todos by active category
+  const filteredTodos = useMemo(
+    () =>
+      isArchiveMode
+        ? todos
+        : todos.filter((t) => !t.completed && t.category === activeCategory),
+    [todos, activeCategory, isArchiveMode],
+  );
+
+  const openCount = filteredTodos.filter((todo) => !todo.completed).length;
   const listClassName = [
     "todo-list",
-    todos.length > TODO_SCROLL_START_ROWS ? "todo-list--scroll" : "",
+    filteredTodos.length > TODO_SCROLL_START_ROWS ? "todo-list--scroll" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1608,10 +1740,75 @@ function TodoNotebook({
 
       <div className="todo-notebook__topline">
         <div className="todo-notebook__title-group">
-          <span className="todo-notebook__tab">
-            <ClipboardList size={15} strokeWidth={2.1} />
-            {isArchiveMode ? "Completed" : "Tasks"}
-          </span>
+          {isArchiveMode ? (
+            <span className="todo-notebook__tab">
+              <ClipboardList size={15} strokeWidth={2.1} />
+              Completed
+            </span>
+          ) : (
+            <>
+              {categoryTabs.map((tab) => (
+                <button
+                  key={tab.name}
+                  className={[
+                    "todo-notebook__tab",
+                    activeCategory === tab.name
+                      ? "todo-notebook__tab--active"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  type="button"
+                  onClick={() => onCategoryChange(tab.name)}
+                >
+                  <ClipboardList size={15} strokeWidth={2.1} />
+                  {tab.name}
+                  <span className="todo-notebook__tab-count">{tab.count}</span>
+                </button>
+              ))}
+              {showAddCategory ? (
+                <form
+                  className="todo-category-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const name = categoryDraft.trim();
+                    if (name) {
+                      onAddCategory(name);
+                      setCategoryDraft("");
+                      setShowAddCategory(false);
+                    }
+                  }}
+                >
+                  <input
+                    className="todo-category-input"
+                    value={categoryDraft}
+                    placeholder="Name"
+                    autoFocus
+                    onChange={(e) => setCategoryDraft(e.target.value)}
+                    onBlur={() => {
+                      setShowAddCategory(false);
+                      setCategoryDraft("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setShowAddCategory(false);
+                        setCategoryDraft("");
+                      }
+                    }}
+                  />
+                </form>
+              ) : (
+                <button
+                  className="todo-notebook__tab todo-notebook__tab--add"
+                  type="button"
+                  title="Add category"
+                  onClick={() => setShowAddCategory(true)}
+                >
+                  <Plus size={13} strokeWidth={2.2} />
+                </button>
+              )}
+            </>
+          )}
         </div>
         {isArchiveMode ? (
           <div className="archive-layout-toggle" aria-label={archiveTitle}>
@@ -1692,10 +1889,10 @@ function TodoNotebook({
         />
       ) : (
         <div className={listClassName} role="list">
-          {todos.length === 0 ? (
+          {filteredTodos.length === 0 ? (
             <div className="todo-empty">今天还很轻</div>
           ) : (
-            todos.map((todo) => {
+            filteredTodos.map((todo) => {
               const isActive =
                 isTodayMode && todo.id === activeTodoId && !todo.completed;
               const titleLineCount = getTodoTitleLineCount(todo.title);
@@ -2439,6 +2636,15 @@ function App() {
   );
   const [todosDirectoryDraft, setTodosDirectoryDraft] = useState(todosDirectory);
   const [draftTodo, setDraftTodo] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>(DEFAULT_CATEGORY);
+  const [categoryNames, setCategoryNames] = useState<string[]>(() => {
+    try {
+      const stored = window.localStorage.getItem(CATEGORY_NAMES_STORAGE_KEY);
+      return stored ? (JSON.parse(stored) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [activeTodoId, setActiveTodoId] = useState<string | null>(
     loadActiveTodoId,
   );
@@ -2880,6 +3086,22 @@ function App() {
     };
   }, []);
 
+  const handleCategoryChange = useCallback((category: string) => {
+    setActiveCategory(category);
+    setDraftTodo("");
+  }, []);
+
+  const handleAddCategory = useCallback((category: string) => {
+    setCategoryNames((prev) => {
+      if (prev.includes(category)) return prev;
+      const next = [...prev, category];
+      window.localStorage.setItem(CATEGORY_NAMES_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    setActiveCategory(category);
+    setDraftTodo("");
+  }, []);
+
   const addTodo = useCallback(() => {
     const title = draftTodo.trim();
 
@@ -2893,11 +3115,12 @@ function App() {
         title,
         completed: false,
         createdAt: Date.now(),
+        category: activeCategory,
       },
       ...currentTodos,
     ]);
     setDraftTodo("");
-  }, [draftTodo]);
+  }, [draftTodo, activeCategory]);
 
   const toggleTodo = useCallback(
     async (id: string) => {
@@ -2933,7 +3156,7 @@ function App() {
 
   const saveTodosToFile = useCallback(
     async (todoList: TodoItem[]) => {
-      const content = formatTodosAsMarkdown(todoList);
+      const content = formatTodosAsMarkdown(todoList, categoryNames);
       try {
         await invoke("save_todos", {
           filePath: `${todosDirectory}/todos.md`,
@@ -2943,7 +3166,7 @@ function App() {
         console.error("Failed to save todos:", error);
       }
     },
-    [todosDirectory],
+    [todosDirectory, categoryNames],
   );
 
   const updateTodoTitle = useCallback((id: string, title: string) => {
@@ -3212,6 +3435,7 @@ function App() {
               title: entry.title,
               completed: true,
               createdAt: Date.now(),
+              category: DEFAULT_CATEGORY,
             });
           }
         }
@@ -3221,6 +3445,32 @@ function App() {
       }
     })();
   }, []);
+
+  // One-time load todos from file on startup, falling back to localStorage
+  const didLoadTodosFromFile = useRef(false);
+  useEffect(() => {
+    if (!todosDirectory || didLoadTodosFromFile.current) return;
+    didLoadTodosFromFile.current = true;
+    void (async () => {
+      const fileTodos = await loadTodosFromFile(todosDirectory);
+      if (fileTodos.length > 0) {
+        setTodos(fileTodos);
+      }
+      // Also extract categories from file headers
+      try {
+        const rawContent = await invoke<string>("read_todos_file", {
+          filePath: `${todosDirectory}/todos.md`,
+        });
+        const fileCategories = parseCategoriesFromMarkdown(rawContent);
+        if (fileCategories.length > 0) {
+          setCategoryNames(fileCategories);
+          window.localStorage.setItem(CATEGORY_NAMES_STORAGE_KEY, JSON.stringify(fileCategories));
+        }
+      } catch {
+        // file doesn't exist, keep localStorage categories
+      }
+    })();
+  }, [todosDirectory]);
 
   useEffect(() => {
     if (activeTodoId) {
@@ -3386,6 +3636,8 @@ function App() {
             pageMode={todoPageMode}
             completedArchives={completedArchives}
             archiveLayout={archiveLayout}
+            activeCategory={activeCategory}
+            categoryNames={categoryNames}
             onDraftChange={setDraftTodo}
             onAddTodo={addTodo}
             onToggleTodo={toggleTodo}
@@ -3395,6 +3647,8 @@ function App() {
             onShowArchive={showArchive}
             onShowToday={showToday}
             onArchiveLayoutChange={setArchiveLayout}
+            onCategoryChange={handleCategoryChange}
+            onAddCategory={handleAddCategory}
           />
         )}
       </IslandShell>

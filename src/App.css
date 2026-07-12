@@ -1161,6 +1161,67 @@ input {
   flex: 0 0 auto;
 }
 
+.todo-notebook__tab--active {
+  background: #a8e6cf;
+  box-shadow: 0 2px 0 rgba(31, 27, 22, 0.14);
+}
+
+.todo-notebook__tab--add {
+  min-width: 0;
+  max-width: none;
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
+  opacity: 0.55;
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed rgba(31, 27, 22, 0.2);
+}
+
+.todo-notebook__tab--add:hover {
+  opacity: 1;
+  background: #a8d8ea;
+}
+
+.todo-notebook__tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(31, 27, 22, 0.12);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgba(31, 27, 22, 0.65);
+}
+
+.todo-category-form {
+  display: inline-flex;
+  align-items: center;
+}
+
+.todo-category-input {
+  width: 120px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #231f1a;
+  background: #d4f0fb;
+  border: 1px solid #a8d8ea;
+  border-radius: 7px 7px 4px 4px;
+  outline: none;
+}
+
+.todo-category-input::placeholder {
+  color: rgba(31, 27, 22, 0.4);
+  text-transform: none;
+}
+
 .todo-notebook--archive .todo-notebook__topline {
   position: absolute;
   top: 26px;

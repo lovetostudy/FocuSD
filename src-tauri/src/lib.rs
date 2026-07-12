@@ -340,6 +340,12 @@ fn save_todos(file_path: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn read_todos_file(file_path: String) -> Result<String, String> {
+    let path = PathBuf::from(file_path.trim());
+    fs::read_to_string(&path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn append_completed_todo(file_path: String, line: String) -> Result<(), String> {
     let path = PathBuf::from(file_path.trim());
     if let Some(parent) = path.parent() {
@@ -1340,6 +1346,7 @@ pub fn run() {
             list_completed_archives,
             show_ready_island,
             minimize_island,
+            read_todos_file,
             get_launch_at_startup,
             set_launch_at_startup,
             get_agent_status,
