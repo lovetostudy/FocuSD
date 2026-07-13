@@ -1,4 +1,4 @@
-mod clipboard_history;
+
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -39,8 +39,9 @@ const WINDOW_LABEL: &str = "main";
 const STAGE_WINDOW_WIDTH: f64 = 820.0;
 const STAGE_WINDOW_HEIGHT: f64 = 460.0;
 const DEFAULT_MARGIN_Y: f64 = 12.0;
+const DEFAULT_MARGIN_X: f64 = 0.0;
 const DEFAULT_SCALE: f64 = 1.0;
-const COLLAPSED_ISLAND_WIDTH: f64 = 320.0;
+const COLLAPSED_ISLAND_WIDTH: f64 = 400.0;
 const COLLAPSED_ISLAND_HEIGHT: f64 = 58.0;
 const EXPANDED_ISLAND_WIDTH: f64 = 560.0;
 const DEFAULT_EXPANDED_ISLAND_HEIGHT: f64 = 306.0;
@@ -103,6 +104,7 @@ struct IslandWindowState {
     is_tucked: bool,
     size_scale: f64,
     margin_y: f64,
+    margin_x: f64,
     expanded_height: f64,
 }
 
@@ -113,6 +115,7 @@ impl Default for IslandWindowState {
             is_tucked: false,
             size_scale: DEFAULT_SCALE,
             margin_y: DEFAULT_MARGIN_Y,
+            margin_x: DEFAULT_MARGIN_X,
             expanded_height: DEFAULT_EXPANDED_ISLAND_HEIGHT,
         }
     }
@@ -123,6 +126,7 @@ impl Default for IslandWindowState {
 struct IslandLayout {
     size_scale: f64,
     margin_y: f64,
+    margin_x: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,6 +233,7 @@ fn set_island_layout(app: AppHandle, layout: IslandLayout) -> Result<(), String>
     let state = mutate_window_state(|state| {
         state.size_scale = layout.size_scale.clamp(0.75, 1.4);
         state.margin_y = layout.margin_y.clamp(0.0, 160.0);
+        state.margin_x = layout.margin_x.clamp(-200.0, 200.0);
         *state
     });
     apply_stage_geometry(&window, state)
@@ -240,6 +245,7 @@ fn set_island_interaction(
     mode: String,
     size_scale: f64,
     margin_y: Option<f64>,
+    margin_x: Option<f64>,
     expanded_height: Option<f64>,
     is_tucked: Option<bool>,
 ) -> Result<(), String> {
@@ -251,6 +257,9 @@ fn set_island_interaction(
         state.size_scale = size_scale.clamp(0.75, 1.4);
         if let Some(margin_y) = margin_y {
             state.margin_y = margin_y.clamp(0.0, 160.0);
+        }
+        if let Some(margin_x) = margin_x {
+            state.margin_x = margin_x.clamp(-200.0, 200.0);
         }
         if let Some(expanded_height) = expanded_height {
             state.expanded_height = expanded_height.clamp(
@@ -1195,7 +1204,9 @@ fn apply_stage_geometry(window: &WebviewWindow, state: IslandWindowState) -> Res
     } else {
         (state.margin_y * scale).round() as i32
     };
-    let x = monitor_position.x + ((monitor_size.width as i32 - physical_width) / 2);
+    let x = monitor_position.x
+        + ((monitor_size.width as i32 - physical_width) / 2)
+        + (state.margin_x * scale).round() as i32;
     let y = monitor_position.y + physical_top_offset;
 
     window
@@ -1340,9 +1351,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             build_tray(app)?;
-            if let Err(error) = clipboard_history::init(app.handle()) {
-                eprintln!("failed to initialize clipboard history: {error}");
-            }
             if let Ok(window) = main_window(app.handle()) {
                 if let Err(error) = apply_stage_geometry(&window, IslandWindowState::default()) {
                     eprintln!("failed to size and position island window: {error}");
@@ -1371,11 +1379,6 @@ pub fn run() {
             media_play_pause,
             media_next,
             media_previous,
-            clipboard_history::get_clipboard_history,
-            clipboard_history::set_clipboard_history_settings,
-            clipboard_history::copy_clipboard_history_item,
-            clipboard_history::delete_clipboard_history_item,
-            clipboard_history::clear_clipboard_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running FocuSD Island");
