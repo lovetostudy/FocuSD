@@ -2485,13 +2485,18 @@ function App() {
   }, []);
 
   const handleSyncNow = useCallback(() => {
-    if (!syncServerUrl || !todosDirectory) return;
+    if (!syncServerUrl || !todosDirectory) {
+      window.alert("请先设置同步服务器地址和待办文件目录");
+      return;
+    }
     void (async () => {
       try {
         // pull first
         const files = await pullFromServer(syncServerUrl);
+        let pulledCount = 0;
         if (files && Object.keys(files).length > 0) {
           await writeAllLocalFiles(todosDirectory, files);
+          pulledCount = Object.keys(files).length;
           const todosContent = files["todos.md"];
           if (todosContent) {
             setTodos(parseTodosFromMarkdown(todosContent));
@@ -2502,8 +2507,13 @@ function App() {
         // then push local
         const local = await readAllLocalFiles(todosDirectory);
         await pushToServer(syncServerUrl, local);
-      } catch {
-        // silent
+        const pushedCount = Object.keys(local).length;
+        window.alert(
+          `同步成功：从服务器拉取 ${pulledCount} 个文件，上传 ${pushedCount} 个文件`,
+        );
+      } catch (error) {
+        console.error("sync failed", error);
+        window.alert(`同步失败：${error instanceof Error ? error.message : String(error)}`);
       }
     })();
   }, [syncServerUrl, todosDirectory]);
