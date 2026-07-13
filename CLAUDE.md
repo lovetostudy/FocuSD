@@ -23,7 +23,7 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 
 **关键类型**（App.tsx 顶部）：
 - `IslandMode`: `"collapsed"` | `"expanded"`
-- `IslandPage`: `"todo"` | `"music"` | `"clipboard"` | `"layout"`
+- `IslandPage`: `"todo"` | `"music"` | `"layout"`
 - `TodoPageMode`: `"today"` | `"archive"`（点1 待办列表 / 点3 完成日记书）
 - `ArchiveLayout`: `"cards"` | `"timeline"`
 - `AgentSessionInfo`: `{ sessionId, provider }` — per-session 状态灯
@@ -32,7 +32,7 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 
 **Tauri 通信**：通过 `invoke()` 调用 Rust 命令，通过 `listen()` 监听 Rust 事件。
 
-### Rust 后端：`src-tauri/src/lib.rs` + `src-tauri/src/clipboard_history.rs`
+### Rust 后端：`src-tauri/src/lib.rs`
 
 **Tauri 命令**：
 | 命令 | 用途 |
@@ -47,7 +47,11 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 | `get_agent_status` / `install_agent_status_hooks` | AI Agent 状态灯 |
 | `get_media_state` / `get_audio_level` | Windows 音频 |
 | `media_play_pause` / `media_next` / `media_previous` | 媒体控制 |
-| `get_clipboard_history` / `set_clipboard_history_settings` 等 | 剪贴板历史 |
+| `list_todos_files` / `read_todos_file` | 待办文件 I/O |
+
+### 多设备同步
+
+通过 HTTP 服务器同步待办数据。设置页填入服务器地址（如 `http://192.168.1.100:3456`），点同步按钮执行 pull-then-push。协议：`GET /sync` 拉取 → `PUT /sync` 上传，body 为 `{ files: {...}, deviceId: "..." }`。编辑完成后 1 秒自动 push、启动时自动 pull。
 
 ### Agent 状态灯脚本：`scripts/`
 
@@ -93,5 +97,5 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 - 常量在 App.tsx 顶部和 lib.rs 顶部
 - 窗口有 collapsed/expanded/tucked/托盘隐藏四种状态
 - Tauri 命令新增：Rust `#[tauri::command]` + `generate_handler!` → 前端 `invoke()` + 类型 → 必要时更新 `capabilities/default.json`
-- 完成后验证：`pnpm tauri build --no-bundle`
+- 完成后验证：`pnpm tauri build`（直接构建安装包）
 - 不要重构 App.tsx 结构、格式化整仓、删除无关代码
