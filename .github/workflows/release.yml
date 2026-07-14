@@ -28,6 +28,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set version from tag
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          (Get-Content src-tauri/Cargo.toml) -replace '^version = ".*"', "version = ""$ver""" | Set-Content src-tauri/Cargo.toml
+          (Get-Content src-tauri/tauri.conf.json -Raw) -replace '"version": ".*"', """version"": ""$ver""" | Set-Content src-tauri/tauri.conf.json
+
       - name: Install dependencies
         run: pnpm install
 
