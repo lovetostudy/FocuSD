@@ -8,7 +8,10 @@ use std::{
     os::windows::process::CommandExt,
     path::{Path, PathBuf},
     process::Command,
-    sync::{Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Mutex, OnceLock,
+    },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -38,11 +41,11 @@ use windows::Win32::{
 const WINDOW_LABEL: &str = "main";
 const STAGE_WINDOW_WIDTH: f64 = 820.0;
 const STAGE_WINDOW_HEIGHT: f64 = 460.0;
-const DEFAULT_MARGIN_Y: f64 = 12.0;
+const DEFAULT_MARGIN_Y: f64 = 16.0;
 const DEFAULT_MARGIN_X: f64 = 0.0;
 const DEFAULT_SCALE: f64 = 1.0;
 const COLLAPSED_ISLAND_WIDTH: f64 = 400.0;
-const COLLAPSED_ISLAND_HEIGHT: f64 = 58.0;
+const COLLAPSED_ISLAND_HEIGHT: f64 = 44.0;
 const EXPANDED_ISLAND_WIDTH: f64 = 560.0;
 const DEFAULT_EXPANDED_ISLAND_HEIGHT: f64 = 306.0;
 const EXPANDED_ISLAND_HEIGHT_RANGE: f64 = 240.0;
@@ -52,6 +55,9 @@ const TUCKED_VISIBLE_EDGE_HEIGHT: f64 = 10.0;
 const STARTUP_REGISTRY_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const STARTUP_REGISTRY_VALUE: &str = "FocuSD Island";
 const AUDIO_ACTIVE_THRESHOLD: f32 = 0.000015;
+
+static LAST_WINDOW_WIDTH: AtomicU32 = AtomicU32::new(0);
+static LAST_WINDOW_HEIGHT: AtomicU32 = AtomicU32::new(0);
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const AGENT_STATUS_FILE_NAME: &str = "agent-status.json";
 const AGENT_RUNNING_FLAG_PREFIX: &str = "agent-";
@@ -233,7 +239,7 @@ fn set_island_layout(app: AppHandle, layout: IslandLayout) -> Result<(), String>
     let state = mutate_window_state(|state| {
         state.size_scale = layout.size_scale.clamp(0.75, 1.4);
         state.margin_y = layout.margin_y.clamp(0.0, 160.0);
-        state.margin_x = layout.margin_x.clamp(-200.0, 200.0);
+        state.margin_x = layout.margin_x.clamp(-300.0, 300.0);
         *state
     });
     apply_stage_geometry(&window, state)
@@ -259,7 +265,7 @@ fn set_island_interaction(
             state.margin_y = margin_y.clamp(0.0, 160.0);
         }
         if let Some(margin_x) = margin_x {
-            state.margin_x = margin_x.clamp(-200.0, 200.0);
+            state.margin_x = margin_x.clamp(-300.0, 300.0);
         }
         if let Some(expanded_height) = expanded_height {
             state.expanded_height = expanded_height.clamp(
@@ -1178,12 +1184,20 @@ fn apply_stage_geometry(window: &WebviewWindow, state: IslandWindowState) -> Res
     let stage_height =
         STAGE_WINDOW_HEIGHT.max((base_height * state.size_scale).ceil() + STAGE_WINDOW_PADDING_Y);
 
-    window
-        .set_size(Size::Logical(LogicalSize::new(
-            STAGE_WINDOW_WIDTH,
-            stage_height,
-        )))
-        .map_err(|error| error.to_string())?;
+    let new_width = STAGE_WINDOW_WIDTH as u32;
+    let new_height = stage_height as u32;
+    if LAST_WINDOW_WIDTH.load(Ordering::Relaxed) != new_width
+        || LAST_WINDOW_HEIGHT.load(Ordering::Relaxed) != new_height
+    {
+        window
+            .set_size(Size::Logical(LogicalSize::new(
+                STAGE_WINDOW_WIDTH,
+                stage_height,
+            )))
+            .map_err(|error| error.to_string())?;
+        LAST_WINDOW_WIDTH.store(new_width, Ordering::Relaxed);
+        LAST_WINDOW_HEIGHT.store(new_height, Ordering::Relaxed);
+    }
 
     let monitor = window
         .primary_monitor()

@@ -176,7 +176,7 @@ const DEFAULT_AGENT_STATUS: AgentStatusSnapshot = {
 const DEFAULT_SETTINGS: IslandSettings = {
   opacity: 95,
   sizeScale: 1,
-  marginY: 31,
+  marginY: 16,
   marginX: 0,
   taskTextColor: DEFAULT_TASK_TEXT_COLOR,
   pulseColor: "#ff8f70",
@@ -242,8 +242,8 @@ function normalizeSettings(
     ),
     marginX: clamp(
       Number(settings?.marginX ?? DEFAULT_SETTINGS.marginX),
-      -200,
-      200,
+      -300,
+      300,
     ),
     taskTextColor,
     pulseColor: getColorSetting(
@@ -863,6 +863,7 @@ function SliderControl({
   step,
   suffix,
   onChange,
+  onChangeEnd,
 }: {
   label: string;
   value: number;
@@ -871,6 +872,7 @@ function SliderControl({
   step: number;
   suffix: string;
   onChange: (value: number) => void;
+  onChangeEnd?: (value: number) => void;
 }) {
   return (
     <label className="slider-control">
@@ -888,6 +890,8 @@ function SliderControl({
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.currentTarget.value))}
+        onMouseUp={(event) => onChangeEnd?.(Number(event.currentTarget.value))}
+        onTouchEnd={(event) => onChangeEnd?.(Number(event.currentTarget.value))}
       />
     </label>
   );
@@ -986,6 +990,7 @@ function LayoutEditor({
 }) {
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [presetNameDraft, setPresetNameDraft] = useState("");
+  const [marginXDraft, setMarginXDraft] = useState<number | null>(null);
 
   const startPresetRename = useCallback((preset: IslandPreset) => {
     setEditingPresetId(preset.id);
@@ -1050,12 +1055,16 @@ function LayoutEditor({
         />
         <SliderControl
           label="左右偏移"
-          value={settings.marginX}
-          min={-200}
-          max={200}
+          value={marginXDraft ?? settings.marginX}
+          min={-300}
+          max={300}
           step={1}
           suffix="px"
-          onChange={(marginX) => onSettingsChange({ ...settings, marginX })}
+          onChange={(marginX) => setMarginXDraft(marginX)}
+          onChangeEnd={(marginX) => {
+            onSettingsChange({ ...settings, marginX });
+            setMarginXDraft(null);
+          }}
         />
         <ToggleControl
           label="开机自启动"
