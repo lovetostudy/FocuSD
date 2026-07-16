@@ -766,10 +766,7 @@ fn install_claude_code_status_hooks(
     install_claude_code_hook_event(
         hooks,
         "PreToolUse",
-        claude_code_match_all_hook_entry(claude_code_pretooluse_hook_entry(
-            running_script_path,
-            confirming_bat_path,
-        )),
+        claude_code_match_all_hook_entry(claude_code_running_hook_entry(running_script_path)),
     );
     install_claude_code_hook_event(
         hooks,
@@ -870,39 +867,6 @@ fn claude_code_confirming_hook_entry(bat_path: &Path) -> Value {
         ],
         1,
     )
-}
-
-fn claude_code_pretooluse_hook_entry(
-    ps_script_path: &Path,
-    _confirming_bat_path: &Path,
-) -> Value {
-    // Two hooks: PowerShell for running flag + cmd.exe for fast confirming flag cleanup
-    json!({
-        "hooks": [
-            {
-                "type": "command",
-                "command": "powershell.exe",
-                "args": [
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    ps_script_path.to_string_lossy(),
-                    "claudeCode",
-                ],
-                "timeout": 1
-            },
-            {
-                "type": "command",
-                "command": "cmd.exe",
-                "args": [
-                    "/c",
-                    "del /f /q \"%APPDATA%\\com.focusd.island\\agent-claudeCode-%FOCUSD_SESSION_ID%-confirming.flag\" 2>nul & del /f /q \"%APPDATA%\\com.focusd.island\\agent-claudeCode-confirming.flag\" 2>nul & ver > nul"
-                ],
-                "timeout": 1
-            }
-        ]
-    })
 }
 
 fn claude_code_status_hook_entry(script_path: &Path, phase: &str) -> Value {
