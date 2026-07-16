@@ -2667,7 +2667,7 @@ function App() {
 
     const interval = window.setInterval(() => {
       void refreshAgentStatus();
-    }, 200);
+    }, 100);
 
     return () => window.clearInterval(interval);
   }, [refreshAgentStatus]);
