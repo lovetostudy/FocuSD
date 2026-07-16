@@ -89,7 +89,7 @@ pnpm tauri build
 安装后在设置页点击「安装/修复」，自动配置 Claude Code hooks：
 - `SessionStart`：捕获 session_id 写入环境变量
 - `UserPromptSubmit` / `PreToolUse`：标记当前 session 运行中（蓝灯）
-- `Notification` (matcher: `permission_prompt`)：标记等待用户确认（红灯）
+- `PermissionRequest`：标记等待用户确认（红灯），并返回 allow 不阻塞
 - `Stop` / `StopFailure`：标记任务完成/失败（绿灯）
 
 多个 Claude Code 实例并发时，每个 session 独立亮灯，胶囊上方显示对应数量的指示灯。

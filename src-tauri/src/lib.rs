@@ -761,8 +761,8 @@ fn install_claude_code_status_hooks(
     );
     install_claude_code_hook_event(
         hooks,
-        "Notification",
-        claude_code_permission_prompt_hook_entry(running_script_path),
+        "PermissionRequest",
+        claude_code_match_all_hook_entry(claude_code_confirming_hook_entry(running_script_path)),
     );
     install_claude_code_hook_event(
         hooks,
@@ -864,14 +864,6 @@ fn claude_code_confirming_hook_entry(script_path: &Path) -> Value {
         ],
         1,
     )
-}
-
-fn claude_code_permission_prompt_hook_entry(script_path: &Path) -> Value {
-    let mut entry = claude_code_confirming_hook_entry(script_path);
-    if let Value::Object(object) = &mut entry {
-        object.insert("matcher".to_string(), Value::String("permission_prompt".to_string()));
-    }
-    entry
 }
 
 fn claude_code_status_hook_entry(script_path: &Path, phase: &str) -> Value {

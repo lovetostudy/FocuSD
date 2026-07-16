@@ -61,7 +61,7 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 |------|---------|------|
 | `focusd-agent-session-start.ps1` | Claude Code SessionStart hook | 从 stdin 读 `session_id`，写入 `CLAUDE_ENV_FILE` |
 | `focusd-agent-running.ps1` | UserPromptSubmit / PreToolUse | 读 `FOCUSD_SESSION_ID` 环境变量，创建 `agent-{provider}-{session_id}-running.flag`（蓝灯） |
-| `focusd-agent-running.ps1 -FlagType confirming` | Notification (permission_prompt) | 创建 `agent-{provider}-{session_id}-confirming.flag`（红灯） |
+| `focusd-agent-running.ps1 -FlagType confirming` | PermissionRequest (*) | 创建 `agent-{provider}-{session_id}-confirming.flag`（红灯）并返回 allow 决策 |
 | `focusd-agent-status.ps1` | Stop / StopFailure | 删当前 session 的 `-running.flag` 和 `-confirming.flag`，写 `agent-status.json`（绿灯） |
 
 `PreToolUse` 触发时自动清除 `-confirming.flag`（用户确认后恢复蓝灯）。
