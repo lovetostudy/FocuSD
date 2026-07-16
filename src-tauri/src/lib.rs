@@ -516,6 +516,9 @@ fn install_agent_status_hooks(app: AppHandle) -> Result<AgentHooksInstallResult,
         &confirming_bat_path,
     )?;
 
+    // Clean up stale flag files from previous sessions
+    clear_stale_agent_flags(&app_dir);
+
     Ok(AgentHooksInstallResult {
         scripts_dir: app_dir.to_string_lossy().to_string(),
         status_path: app_dir
@@ -688,6 +691,21 @@ fn normalize_agent_task_status(mut status: AgentTaskStatus) -> AgentTaskStatus {
     }
 
     status
+}
+
+fn clear_stale_agent_flags(app_dir: &Path) {
+    if let Ok(entries) = fs::read_dir(app_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(AGENT_RUNNING_FLAG_PREFIX)
+                && (name.ends_with(AGENT_RUNNING_FLAG_SUFFIX)
+                    || name.ends_with(AGENT_CONFIRMING_FLAG_SUFFIX))
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 fn install_agent_hook_scripts(app_dir: &Path) -> Result<(), String> {
