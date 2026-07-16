@@ -1,6 +1,10 @@
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [string]$Provider
+  [string]$Provider,
+
+  [Parameter(Position = 1)]
+  [ValidateSet("running", "confirming")]
+  [string]$FlagType = "running"
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,11 +51,20 @@ if (-not $sessionId) {
 }
 
 if ($sessionId) {
-  $markerName = "${prefix}-${sessionId}-running.flag"
+  $baseMarker = "${prefix}-${sessionId}"
 } else {
-  $markerName = "${prefix}-running.flag"
+  $baseMarker = $prefix
 }
 
-$markerPath = Join-Path $statusDir $markerName
-[System.IO.File]::WriteAllText($markerPath, "", [System.Text.UTF8Encoding]::new($false))
+if ($FlagType -eq "confirming") {
+  # Create confirming flag, keep running flag intact
+  $confirmingPath = Join-Path $statusDir "${baseMarker}-confirming.flag"
+  [System.IO.File]::WriteAllText($confirmingPath, "", [System.Text.UTF8Encoding]::new($false))
+} else {
+  # running mode: clear any stale confirming flag first, then create running flag
+  $confirmingPath = Join-Path $statusDir "${baseMarker}-confirming.flag"
+  Remove-Item -LiteralPath $confirmingPath -Force -ErrorAction SilentlyContinue
+  $runningPath = Join-Path $statusDir "${baseMarker}-running.flag"
+  [System.IO.File]::WriteAllText($runningPath, "", [System.Text.UTF8Encoding]::new($false))
+}
 exit 0

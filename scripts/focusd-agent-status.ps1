@@ -4,7 +4,7 @@ param(
   [string]$Provider,
 
   [Parameter(Mandatory = $true, Position = 1)]
-  [ValidateSet("idle", "running", "completed", "failed")]
+  [ValidateSet("idle", "running", "completed", "failed", "awaiting_confirmation")]
   [string]$Phase,
 
   [Parameter(Position = 2)]
@@ -50,7 +50,7 @@ function Copy-AgentTaskStatus {
   $phase = "idle"
   if ($Source.PSObject.Properties.Name -contains "phase") {
     $candidatePhase = [string]$Source.phase
-    if (@("idle", "running", "completed", "failed") -contains $candidatePhase) {
+    if (@("idle", "running", "completed", "failed", "awaiting_confirmation") -contains $candidatePhase) {
       $phase = $candidatePhase
     }
   }
@@ -110,12 +110,15 @@ function Get-AgentMarkerNames {
 
   if ($sessionId) {
     $runningName = "${base}-${sessionId}-running.flag"
+    $confirmingName = "${base}-${sessionId}-confirming.flag"
   } else {
     $runningName = "${base}-running.flag"
+    $confirmingName = "${base}-confirming.flag"
   }
 
   return @{
     Running = $runningName
+    Confirming = $confirmingName
   }
 }
 
@@ -128,13 +131,16 @@ function Update-AgentRunningMarkers {
 
   $markerNames = Get-AgentMarkerNames -Provider $Provider
   $runningPath = Join-Path $StatusDirectory $markerNames.Running
+  $confirmingPath = Join-Path $StatusDirectory $markerNames.Confirming
 
   if ($Phase -eq "running") {
     [System.IO.File]::WriteAllText($runningPath, "", [System.Text.UTF8Encoding]::new($false))
     return
   }
 
+  # Clean up both flag types when not running
   Remove-Item -LiteralPath $runningPath -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $confirmingPath -Force -ErrorAction SilentlyContinue
 }
 
 if (-not $StatusPath) {

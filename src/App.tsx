@@ -35,7 +35,7 @@ type TodoPageMode = "today" | "archive";
 type ArchiveLayout = "cards" | "timeline";
 type MediaPlaybackStatus = "unavailable" | "playing" | "paused";
 type AgentProvider = "codex" | "claudeCode";
-type AgentTaskPhase = "idle" | "running" | "completed" | "failed";
+type AgentTaskPhase = "idle" | "running" | "completed" | "failed" | "awaiting_confirmation";
 
 type TodoItem = {
   id: string;
@@ -105,7 +105,6 @@ type IslandSettings = {
   pulseBrightness: number;
   islandBackgroundColor: string;
   todoBackgroundColor: string;
-  showTitle: boolean;
 };
 
 type IslandPreset = {
@@ -120,11 +119,11 @@ type IslandShellProps = {
   mode: IslandMode;
   page: IslandPage;
   isTucked: boolean;
-  showTitle: boolean;
   activeTaskTitle: string | null;
   pendingTodoCount: number;
   mediaState: MediaState;
   activeSessions: AgentSessionInfo[];
+  isAgentConfirming: boolean;
   onOpenPage: (page: IslandPage) => void;
   onCollapse: () => void;
   onMinimize: () => void;
@@ -183,7 +182,6 @@ const DEFAULT_SETTINGS: IslandSettings = {
   pulseBrightness: 100,
   islandBackgroundColor: "#101013",
   todoBackgroundColor: "#ffffff",
-  showTitle: true,
 };
 const LEGACY_DEFAULT_PRESET_IDS = new Set(["default-white", "default-khaki"]);
 const LEGACY_DEFAULT_PRESET_NAMES = new Set(["白色", "卡其"]);
@@ -263,10 +261,6 @@ function normalizeSettings(
       settings?.todoBackgroundColor,
       DEFAULT_SETTINGS.todoBackgroundColor,
     ),
-    showTitle:
-      typeof settings?.showTitle === "boolean"
-        ? settings.showTitle
-        : DEFAULT_SETTINGS.showTitle,
   };
 }
 
@@ -584,11 +578,11 @@ function IslandShell({
   mode,
   page,
   isTucked,
-  showTitle,
   activeTaskTitle,
   pendingTodoCount,
   mediaState,
   activeSessions,
+  isAgentConfirming,
   onOpenPage,
   onCollapse,
   onMinimize,
@@ -605,20 +599,27 @@ function IslandShell({
     "island",
     `island--${mode}`,
     `island--${page}`,
-    showTitle ? "" : "island--title-hidden",
   ]
     .filter(Boolean)
     .join(" ");
   const isAgentRunning = activeSessions.length > 0;
   const agentStatusIconClassName = [
     "island__agent-status-icon",
-    isAgentRunning
+    isAgentConfirming
+      ? "island__agent-status-icon--confirming"
+      : isAgentRunning
       ? "island__agent-status-icon--running"
       : "island__agent-status-icon--idle",
   ].join(" ");
   const collapsedLabel = activeTaskTitle
     ? `正在专注：${activeTaskTitle}`
     : "FocuSD Island";
+
+  const sessionDotClassName = isAgentConfirming
+    ? "island__session-dot island__session-dot--confirming"
+    : isAgentRunning
+    ? "island__session-dot island__session-dot--running"
+    : "island__session-dot island__session-dot--idle";
 
   return (
     <section
@@ -638,16 +639,21 @@ function IslandShell({
       <div className="island__collapsed" aria-hidden={isExpanded}>
         <div className="island__collapsed-row">
           <div className="island__session-dots">
-            {activeSessions.length > 0 ? (
+            {isAgentConfirming ? (
+              <span
+                className={sessionDotClassName}
+                title="等待确认"
+              />
+            ) : activeSessions.length > 0 ? (
               activeSessions.map((s) => (
                 <span
                   key={s.sessionId}
-                  className="island__session-dot island__session-dot--running"
+                  className={sessionDotClassName}
                   title={`${s.provider}: ${s.sessionId.slice(0, 8)}`}
                 />
               ))
             ) : (
-              <span className="island__session-dot island__session-dot--idle" />
+              <span className={sessionDotClassName} />
             )}
           </div>
           {activeTaskTitle ? (
@@ -1070,11 +1076,6 @@ function LayoutEditor({
           label="开机自启动"
           checked={launchAtStartup}
           onChange={onLaunchAtStartupChange}
-        />
-        <ToggleControl
-          label="展示“title”"
-          checked={settings.showTitle}
-          onChange={(showTitle) => onSettingsChange({ ...settings, showTitle })}
         />
       </section>
 
@@ -2878,11 +2879,14 @@ function App() {
         mode={mode}
         page={page}
         isTucked={isTucked}
-        showTitle={settings.showTitle}
         activeTaskTitle={activeTaskTitle}
         pendingTodoCount={openTodoCount}
         mediaState={mediaState}
         activeSessions={agentStatus.activeSessions}
+        isAgentConfirming={
+          agentStatus.codex?.phase === "awaiting_confirmation" ||
+          agentStatus.claudeCode?.phase === "awaiting_confirmation"
+        }
         onOpenPage={openIslandPage}
         onCollapse={collapseIsland}
         onMinimize={minimizeIsland}

@@ -62,6 +62,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 const AGENT_STATUS_FILE_NAME: &str = "agent-status.json";
 const AGENT_RUNNING_FLAG_PREFIX: &str = "agent-";
 const AGENT_RUNNING_FLAG_SUFFIX: &str = "-running.flag";
+const AGENT_CONFIRMING_FLAG_SUFFIX: &str = "-confirming.flag";
 const AGENT_RUNNING_SCRIPT_FILE_NAME: &str = "focusd-agent-running.ps1";
 const AGENT_STATUS_SCRIPT_FILE_NAME: &str = "focusd-agent-status.ps1";
 const AGENT_SESSION_START_SCRIPT_FILE_NAME: &str = "focusd-agent-session-start.ps1";
@@ -603,11 +604,30 @@ fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapsho
     let mut active_sessions: Vec<AgentSessionInfo> = Vec::new();
     let mut has_codex = false;
     let mut has_claude_code = false;
+    let mut has_codex_confirming = false;
+    let mut has_claude_code_confirming = false;
 
     if let Ok(entries) = fs::read_dir(app_dir) {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
+
+            // Check for confirming flag first (takes precedence)
+            if name.starts_with(AGENT_RUNNING_FLAG_PREFIX) && name.ends_with(AGENT_CONFIRMING_FLAG_SUFFIX) {
+                let core = &name[AGENT_RUNNING_FLAG_PREFIX.len()..name.len() - AGENT_CONFIRMING_FLAG_SUFFIX.len()];
+                let provider = if let Some(idx) = core.find('-') {
+                    core[..idx].to_string()
+                } else {
+                    core.to_string()
+                };
+                if provider.starts_with("codex") {
+                    has_codex_confirming = true;
+                } else if provider.starts_with("claudeCode") {
+                    has_claude_code_confirming = true;
+                }
+                continue;
+            }
+
             if !name.starts_with(AGENT_RUNNING_FLAG_PREFIX) || !name.ends_with(AGENT_RUNNING_FLAG_SUFFIX) {
                 continue;
             }
@@ -637,13 +657,20 @@ fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapsho
         }
     }
 
-    if has_codex {
+    let now = current_unix_millis();
+    if has_codex_confirming {
+        snapshot.codex.phase = "awaiting_confirmation".to_string();
+        snapshot.codex.updated_at = now;
+    } else if has_codex {
         snapshot.codex.phase = "running".to_string();
-        snapshot.codex.updated_at = current_unix_millis();
+        snapshot.codex.updated_at = now;
     }
-    if has_claude_code {
+    if has_claude_code_confirming {
+        snapshot.claude_code.phase = "awaiting_confirmation".to_string();
+        snapshot.claude_code.updated_at = now;
+    } else if has_claude_code {
         snapshot.claude_code.phase = "running".to_string();
-        snapshot.claude_code.updated_at = current_unix_millis();
+        snapshot.claude_code.updated_at = now;
     }
     snapshot.active_sessions = active_sessions;
 }
@@ -651,7 +678,7 @@ fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapsho
 fn normalize_agent_task_status(mut status: AgentTaskStatus) -> AgentTaskStatus {
     if !matches!(
         status.phase.as_str(),
-        "idle" | "running" | "completed" | "failed"
+        "idle" | "running" | "completed" | "failed" | "awaiting_confirmation"
     ) {
         status.phase = default_agent_phase();
     }
@@ -731,6 +758,11 @@ fn install_claude_code_status_hooks(
         hooks,
         "PreToolUse",
         claude_code_match_all_hook_entry(claude_code_running_hook_entry(running_script_path)),
+    );
+    install_claude_code_hook_event(
+        hooks,
+        "Notification",
+        claude_code_permission_prompt_hook_entry(running_script_path),
     );
     install_claude_code_hook_event(
         hooks,
@@ -815,6 +847,31 @@ fn claude_code_running_hook_entry(script_path: &Path) -> Value {
         ],
         1,
     )
+}
+
+fn claude_code_confirming_hook_entry(script_path: &Path) -> Value {
+    claude_code_hook_entry(
+        "powershell.exe",
+        vec![
+            "-NoProfile".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-File".to_string(),
+            script_path.to_string_lossy().to_string(),
+            "claudeCode".to_string(),
+            "-FlagType".to_string(),
+            "confirming".to_string(),
+        ],
+        1,
+    )
+}
+
+fn claude_code_permission_prompt_hook_entry(script_path: &Path) -> Value {
+    let mut entry = claude_code_confirming_hook_entry(script_path);
+    if let Value::Object(object) = &mut entry {
+        object.insert("matcher".to_string(), Value::String("permission_prompt".to_string()));
+    }
+    entry
 }
 
 fn claude_code_status_hook_entry(script_path: &Path, phase: &str) -> Value {
