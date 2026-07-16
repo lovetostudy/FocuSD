@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Mutex, OnceLock,
     },
     thread,
@@ -76,6 +76,7 @@ const AGENT_CONFIRMING_BAT_FILE_NAME: &str = "focusd-agent-confirming.bat";
 const AGENT_CONFIRMING_BAT: &str = "@echo off\r\nsetlocal\r\nset \"SD=%FOCUSD_AGENT_STATUS_DIR%\"\r\nif \"%SD%\"==\"\" set \"SD=%APPDATA%\\com.focusd.island\"\r\nif not exist \"%SD%\" md \"%SD%\" 2>nul\r\nset \"SID=%FOCUSD_SESSION_ID%\"\r\nif \"%SID%\"==\"\" (\r\n    type nul > \"%SD%\\agent-claudeCode-confirming.flag\"\r\n) else (\r\n    type nul > \"%SD%\\agent-claudeCode-%SID%-confirming.flag\"\r\n)\r\necho {\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":{\"behavior\":\"allow\"}}}\r\n";
 
 static WINDOW_STATE: OnceLock<Mutex<IslandWindowState>> = OnceLock::new();
+static STALE_FLAGS_CLEANED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy)]
 enum IslandMode {
@@ -469,6 +470,11 @@ fn get_agent_status(app: AppHandle) -> Result<AgentStatusSnapshot, String> {
         .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
     fs::create_dir_all(&app_dir)
         .map_err(|error| format!("Failed to create app data directory: {error}"))?;
+
+    // Clean stale flags once on first status read after startup
+    if !STALE_FLAGS_CLEANED.swap(true, Ordering::Relaxed) {
+        clear_stale_agent_flags(&app_dir);
+    }
 
     let status_path = app_dir.join(AGENT_STATUS_FILE_NAME);
     let status_path_display = status_path.to_string_lossy().to_string();
