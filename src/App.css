@@ -169,8 +169,8 @@ input {
 }
 
 .island__session-dot--running {
-  background-color: #4da6ff;
-  box-shadow: 0 0 10px 3px rgba(77, 166, 255, 0.6);
+  background-color: #e8c840;
+  box-shadow: 0 0 10px 3px rgba(232, 200, 64, 0.6);
   animation: sessionDotPulse 1040ms ease infinite;
 }
 
@@ -213,7 +213,7 @@ input {
 }
 
 .island__agent-status-icon--running {
-  color: #4da6ff;
+  color: #e8c840;
 }
 
 .island__agent-status-icon--confirming {
