@@ -30,7 +30,17 @@ New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
 # Try FOCUSD_SESSION_ID env var first
 $sessionId = $env:FOCUSD_SESSION_ID
 
-# Fallback: trace up process tree to find Claude Code process PID
+# Fallback: read from SessionStart's fixed file (more reliable than process tree)
+if (-not $sessionId) {
+  $sessionFile = Join-Path $statusDir "session-claudeCode.txt"
+  if (Test-Path $sessionFile) {
+    try {
+      $sessionId = [System.IO.File]::ReadAllText($sessionFile, [System.Text.UTF8Encoding]::new($false)).Trim()
+    } catch { }
+  }
+}
+
+# Last resort: trace up process tree to find Claude Code process PID
 if (-not $sessionId) {
   try {
     $currentPid = $pid

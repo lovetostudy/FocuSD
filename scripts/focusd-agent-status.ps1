@@ -86,6 +86,19 @@ function Get-AgentMarkerNames {
   )
 
   $sessionId = $env:FOCUSD_SESSION_ID
+  # Fallback: read from SessionStart's fixed file (more reliable than process tree)
+  if (-not $sessionId) {
+    $fileStatusDir = if ($env:FOCUSD_AGENT_STATUS_DIR) { $env:FOCUSD_AGENT_STATUS_DIR }
+                     elseif ($env:APPDATA) { Join-Path $env:APPDATA "com.focusd.island" }
+                     else { Join-Path $env:LOCALAPPDATA "com.focusd.island" }
+    $sessionFile = Join-Path $fileStatusDir "session-claudeCode.txt"
+    if (Test-Path $sessionFile) {
+      try {
+        $sessionId = [System.IO.File]::ReadAllText($sessionFile, [System.Text.UTF8Encoding]::new($false)).Trim()
+      } catch { }
+    }
+  }
+  # Last resort: trace up process tree
   if (-not $sessionId) {
     try {
       $currentPid = $pid
@@ -147,6 +160,9 @@ function Update-AgentRunningMarkers {
   $legacyConfirmingPath = Join-Path $StatusDirectory "${providerBase}-confirming.flag"
   Remove-Item -LiteralPath $legacyRunningPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $legacyConfirmingPath -Force -ErrorAction SilentlyContinue
+  # Clean up SessionStart's fixed session file
+  $sessionFile = Join-Path $StatusDirectory "session-claudeCode.txt"
+  Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue
 }
 
 if (-not $StatusPath) {
