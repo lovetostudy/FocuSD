@@ -177,17 +177,6 @@ input {
 .island__session-dot--confirming {
   background-color: #00c8d6;
   box-shadow: 0 0 10px 3px rgba(0, 200, 214, 0.6);
-  animation: sessionDotPulseConfirming 1400ms ease infinite;
-}
-
-@keyframes sessionDotPulseConfirming {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.48;
-  }
 }
 
 @keyframes sessionDotPulse {
