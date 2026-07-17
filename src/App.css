@@ -175,8 +175,8 @@ input {
 }
 
 .island__session-dot--confirming {
-  background-color: #00c8d6;
-  box-shadow: 0 0 10px 3px rgba(0, 200, 214, 0.6);
+  background-color: #e8a400;
+  box-shadow: 0 0 10px 3px rgba(232, 164, 0, 0.58);
 }
 
 @keyframes sessionDotPulse {
@@ -206,7 +206,7 @@ input {
 }
 
 .island__agent-status-icon--confirming {
-  color: #00c8d6;
+  color: #e8a400;
 }
 
 
