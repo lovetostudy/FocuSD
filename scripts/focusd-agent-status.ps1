@@ -141,6 +141,12 @@ function Update-AgentRunningMarkers {
   # Clean up both flag types when not running
   Remove-Item -LiteralPath $runningPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $confirmingPath -Force -ErrorAction SilentlyContinue
+  # Fallback: also clean up session-less variants (created when FOCUSD_SESSION_ID is empty)
+  $providerBase = if ($Provider -eq "codex") { "agent-codex" } else { "agent-claudeCode" }
+  $legacyRunningPath = Join-Path $StatusDirectory "${providerBase}-running.flag"
+  $legacyConfirmingPath = Join-Path $StatusDirectory "${providerBase}-confirming.flag"
+  Remove-Item -LiteralPath $legacyRunningPath -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $legacyConfirmingPath -Force -ErrorAction SilentlyContinue
 }
 
 if (-not $StatusPath) {

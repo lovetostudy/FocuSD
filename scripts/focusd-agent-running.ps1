@@ -66,6 +66,9 @@ if ($FlagType -eq "confirming") {
   # running mode: clear any stale confirming flag first, then create running flag
   $confirmingPath = Join-Path $statusDir "${baseMarker}-confirming.flag"
   Remove-Item -LiteralPath $confirmingPath -Force -ErrorAction SilentlyContinue
+  # Fallback: also clear session-less confirming flag created by confirming.bat
+  $legacyConfirmingPath = Join-Path $statusDir "${prefix}-confirming.flag"
+  Remove-Item -LiteralPath $legacyConfirmingPath -Force -ErrorAction SilentlyContinue
   $runningPath = Join-Path $statusDir "${baseMarker}-running.flag"
   [System.IO.File]::WriteAllText($runningPath, "", [System.Text.UTF8Encoding]::new($false))
 }
