@@ -878,7 +878,7 @@ fn claude_code_running_hook_entry(script_path: &Path) -> Value {
             script_path.to_string_lossy().to_string(),
             "claudeCode".to_string(),
         ],
-        1,
+        5,
     )
 }
 
@@ -954,7 +954,7 @@ fn build_codex_hook_block(running_script_path: &Path, status_script_path: &Path)
 type = "command"
 command = {submit_command}
 command_windows = {submit_command}
-timeout = 1
+timeout = 5
 statusMessage = "Updating FocuSD agent status"
 
 [[hooks.Stop]]
