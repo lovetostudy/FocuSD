@@ -106,6 +106,10 @@ type IslandSettings = {
   pulseBrightness: number;
   islandBackgroundColor: string;
   todoBackgroundColor: string;
+  agentRunningColor: string;
+  agentConfirmingColor: string;
+  agentIdleColor: string;
+  agentDotSize: number;
 };
 
 type IslandPreset = {
@@ -183,6 +187,10 @@ const DEFAULT_SETTINGS: IslandSettings = {
   pulseBrightness: 100,
   islandBackgroundColor: "#101013",
   todoBackgroundColor: "#ffffff",
+  agentRunningColor: "#e8a400",
+  agentConfirmingColor: "#ff5e4d",
+  agentIdleColor: "#35e985",
+  agentDotSize: 14,
 };
 const LEGACY_DEFAULT_PRESET_IDS = new Set(["default-white", "default-khaki"]);
 const LEGACY_DEFAULT_PRESET_NAMES = new Set(["白色", "卡其"]);
@@ -261,6 +269,23 @@ function normalizeSettings(
     todoBackgroundColor: getColorSetting(
       settings?.todoBackgroundColor,
       DEFAULT_SETTINGS.todoBackgroundColor,
+    ),
+    agentRunningColor: getColorSetting(
+      settings?.agentRunningColor,
+      DEFAULT_SETTINGS.agentRunningColor,
+    ),
+    agentConfirmingColor: getColorSetting(
+      settings?.agentConfirmingColor,
+      DEFAULT_SETTINGS.agentConfirmingColor,
+    ),
+    agentIdleColor: getColorSetting(
+      settings?.agentIdleColor,
+      DEFAULT_SETTINGS.agentIdleColor,
+    ),
+    agentDotSize: clamp(
+      Number(settings?.agentDotSize ?? DEFAULT_SETTINGS.agentDotSize),
+      6,
+      40,
     ),
   };
 }
@@ -1021,7 +1046,11 @@ function LayoutEditor({
           type="button"
           title="恢复默认"
           aria-label="恢复默认"
-          onClick={onReset}
+          onClick={() => {
+            if (window.confirm("确认恢复所有设置为默认值？")) {
+              onReset();
+            }
+          }}
         >
           <RefreshCcw size={15} strokeWidth={2.2} />
         </button>
@@ -1184,7 +1213,109 @@ function LayoutEditor({
         <div className="settings-section__header">
           <span>颜色设置</span>
         </div>
-        <div className="color-grid">
+
+        <div className="agent-light-row">
+          <label className="agent-light-pick">
+            <span className="agent-light-pick__label">运行灯</span>
+            <div
+              className="agent-light-pick__dot"
+              style={{ backgroundColor: settings.agentRunningColor }}
+              onClick={(e) => {
+                const input = e.currentTarget
+                  .closest(".agent-light-pick")
+                  ?.querySelector("input") as HTMLInputElement | null;
+                input?.click();
+              }}
+            />
+            <input
+              type="color"
+              value={settings.agentRunningColor}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  agentRunningColor: e.target.value,
+                })
+              }
+            />
+            <strong className="agent-light-pick__hex">
+              {settings.agentRunningColor}
+            </strong>
+          </label>
+          <label className="agent-light-pick">
+            <span className="agent-light-pick__label">确认灯</span>
+            <div
+              className="agent-light-pick__dot"
+              style={{ backgroundColor: settings.agentConfirmingColor }}
+              onClick={(e) => {
+                const input = e.currentTarget
+                  .closest(".agent-light-pick")
+                  ?.querySelector("input") as HTMLInputElement | null;
+                input?.click();
+              }}
+            />
+            <input
+              type="color"
+              value={settings.agentConfirmingColor}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  agentConfirmingColor: e.target.value,
+                })
+              }
+            />
+            <strong className="agent-light-pick__hex">
+              {settings.agentConfirmingColor}
+            </strong>
+          </label>
+          <label className="agent-light-pick">
+            <span className="agent-light-pick__label">空闲灯</span>
+            <div
+              className="agent-light-pick__dot"
+              style={{ backgroundColor: settings.agentIdleColor }}
+              onClick={(e) => {
+                const input = e.currentTarget
+                  .closest(".agent-light-pick")
+                  ?.querySelector("input") as HTMLInputElement | null;
+                input?.click();
+              }}
+            />
+            <input
+              type="color"
+              value={settings.agentIdleColor}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  agentIdleColor: e.target.value,
+                })
+              }
+            />
+            <strong className="agent-light-pick__hex">
+              {settings.agentIdleColor}
+            </strong>
+          </label>
+        </div>
+
+        <label className="color-control" style={{ marginTop: 16 }}>
+          <span className="color-control__meta">
+            <span>指示灯大小</span>
+            <strong>{settings.agentDotSize}px</strong>
+          </span>
+          <input
+            type="number"
+            min={6}
+            max={40}
+            step={1}
+            value={settings.agentDotSize}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (v >= 6 && v <= 40) {
+                onSettingsChange({ ...settings, agentDotSize: v });
+              }
+            }}
+          />
+        </label>
+
+        <div className="color-grid" style={{ marginTop: 16 }}>
           <ColorControl
             label="任务/待办字样"
             value={settings.taskTextColor}
@@ -2058,6 +2189,12 @@ function App() {
         "--island-pulse-brightness": `${settings.pulseBrightness}%`,
         "--island-background-color": settings.islandBackgroundColor,
         "--todo-background-color": settings.todoBackgroundColor,
+        "--agent-running-color": settings.agentRunningColor,
+        "--agent-running-glow-color": hexToRgba(settings.agentRunningColor, 0.64),
+        "--agent-confirming-color": settings.agentConfirmingColor,
+        "--agent-confirming-glow-color": hexToRgba(settings.agentConfirmingColor, 0.64),
+        "--agent-idle-color": settings.agentIdleColor,
+        "--agent-dot-size": `${settings.agentDotSize}px`,
       }) as CSSProperties,
     [
       expandedIslandHeight,
@@ -2068,6 +2205,10 @@ function App() {
       settings.sizeScale,
       settings.taskTextColor,
       settings.todoBackgroundColor,
+      settings.agentRunningColor,
+      settings.agentConfirmingColor,
+      settings.agentIdleColor,
+      settings.agentDotSize,
     ],
   );
 

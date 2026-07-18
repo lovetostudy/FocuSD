@@ -156,27 +156,27 @@ input {
 }
 
 .island__session-dot {
-  width: 10px;
-  height: 10px;
+  width: var(--agent-dot-size, 14px);
+  height: var(--agent-dot-size, 14px);
   border-radius: 999px;
   flex: 0 0 auto;
   transition: background-color 200ms ease, box-shadow 200ms ease;
 }
 
 .island__session-dot--idle {
-  background-color: #5ac994;
-  box-shadow: 0 0 6px 1px rgba(38, 217, 132, 0.52);
+  background-color: var(--agent-idle-color);
+  box-shadow: 0 0 7px 2px color-mix(in srgb, var(--agent-idle-color) 52%, transparent);
 }
 
 .island__session-dot--running {
-  background-color: #e8a400;
-  box-shadow: 0 0 10px 3px rgba(232, 164, 0, 0.58);
+  background-color: var(--agent-running-color);
+  box-shadow: 0 0 12px 4px var(--agent-running-glow-color);
   animation: sessionDotPulse 1040ms ease infinite;
 }
 
 .island__session-dot--confirming {
-  background-color: #ff5e4d;
-  box-shadow: 0 0 10px 3px rgba(255, 72, 54, 0.64);
+  background-color: var(--agent-confirming-color);
+  box-shadow: 0 0 12px 4px var(--agent-confirming-glow-color);
 }
 
 @keyframes sessionDotPulse {
@@ -198,15 +198,15 @@ input {
 }
 
 .island__agent-status-icon--idle {
-  color: #35e985;
+  color: var(--agent-idle-color);
 }
 
 .island__agent-status-icon--running {
-  color: #e8a400;
+  color: var(--agent-running-color);
 }
 
 .island__agent-status-icon--confirming {
-  color: #ff5e4d;
+  color: var(--agent-confirming-color);
 }
 
 
@@ -1880,6 +1880,57 @@ input {
   gap: 10px;
 }
 
+.agent-light-row {
+  display: flex;
+  gap: 12px;
+}
+
+.agent-light-pick {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-light-pick__label {
+  color: rgba(248, 246, 240, 0.62);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.agent-light-pick__dot {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  transition: box-shadow 160ms ease, transform 120ms ease;
+}
+
+.agent-light-pick__dot:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 12px 2px rgba(255, 255, 255, 0.12);
+}
+
+.agent-light-pick input[type="color"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.agent-light-pick__hex {
+  color: rgba(248, 246, 240, 0.9);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
 .color-control {
   display: grid;
   gap: 7px;
@@ -1934,6 +1985,32 @@ input {
 }
 
 .color-control input[type="color"]:focus-visible {
+  border-color: rgba(116, 214, 255, 0.58);
+  box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.16);
+}
+
+.color-control input[type="number"] {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  outline: none;
+  color: rgba(248, 246, 240, 0.9);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+
+.color-control input[type="number"]::-webkit-inner-spin-button,
+.color-control input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.color-control input[type="number"]:focus-visible {
   border-color: rgba(116, 214, 255, 0.58);
   box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.16);
 }

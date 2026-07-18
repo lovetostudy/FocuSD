@@ -63,6 +63,8 @@ const AGENT_STATUS_FILE_NAME: &str = "agent-status.json";
 const AGENT_RUNNING_FLAG_PREFIX: &str = "agent-";
 const AGENT_RUNNING_FLAG_SUFFIX: &str = "-running.flag";
 const AGENT_CONFIRMING_FLAG_SUFFIX: &str = "-confirming.flag";
+const AGENT_CONFIRMING_FLAG_TIMEOUT_MS: i64 = 30_000;
+const AGENT_RUNNING_FLAG_TIMEOUT_MS: i64 = 300_000;
 const AGENT_RUNNING_SCRIPT_FILE_NAME: &str = "focusd-agent-running.ps1";
 const AGENT_STATUS_SCRIPT_FILE_NAME: &str = "focusd-agent-status.ps1";
 const AGENT_SESSION_START_SCRIPT_FILE_NAME: &str = "focusd-agent-session-start.ps1";
@@ -625,6 +627,17 @@ fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapsho
             let name = name.to_string_lossy();
 
             if name.starts_with(AGENT_RUNNING_FLAG_PREFIX) && name.ends_with(AGENT_CONFIRMING_FLAG_SUFFIX) {
+                // Ignore stale confirming flags (user may have denied permission)
+                if let Ok(metadata) = entry.metadata() {
+                    if let Ok(modified) = metadata.modified() {
+                        if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
+                            let age_ms = current_unix_millis() - duration.as_millis() as i64;
+                            if age_ms > AGENT_CONFIRMING_FLAG_TIMEOUT_MS {
+                                continue;
+                            }
+                        }
+                    }
+                }
                 let core = &name[AGENT_RUNNING_FLAG_PREFIX.len()..name.len() - AGENT_CONFIRMING_FLAG_SUFFIX.len()];
                 let (provider, session_id) = parse_agent_marker_core(core);
                 active_sessions.retain(|session| {
@@ -645,6 +658,17 @@ fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapsho
 
             if !name.starts_with(AGENT_RUNNING_FLAG_PREFIX) || !name.ends_with(AGENT_RUNNING_FLAG_SUFFIX) {
                 continue;
+            }
+            // Ignore stale running flags (session may have been interrupted)
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
+                        let age_ms = current_unix_millis() - duration.as_millis() as i64;
+                        if age_ms > AGENT_RUNNING_FLAG_TIMEOUT_MS {
+                            continue;
+                        }
+                    }
+                }
             }
             // Parse: agent-{provider}-{session_id}-running.flag
             //       or agent-{provider}-running.flag (legacy, no session_id)
@@ -824,6 +848,21 @@ fn install_claude_code_status_hooks(
         "StopFailure",
         claude_code_status_hook_entry(status_script_path, "failed"),
     );
+
+    // Clean up legacy Notification(permission_prompt) hook (replaced by PermissionRequest)
+    if let Some(Value::Array(notifications)) = hooks.get_mut("Notification") {
+        notifications.retain(|entry| {
+            if let Some(matcher) = entry.get("matcher").and_then(|m| m.as_str()) {
+                if matcher == "permission_prompt" && value_contains_focusd_hook_signature(entry) {
+                    return false;
+                }
+            }
+            true
+        });
+        if notifications.is_empty() {
+            hooks.remove("Notification");
+        }
+    }
 
     let json = serde_json::to_string_pretty(&config)
         .map_err(|error| format!("Failed to serialize Claude Code settings.json: {error}"))?;
