@@ -211,6 +211,7 @@ struct PersistedAgentStatus {
 struct AgentSessionInfo {
     session_id: String,
     provider: String,
+    phase: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -504,7 +505,6 @@ fn install_agent_status_hooks(app: AppHandle) -> Result<AgentHooksInstallResult,
     let running_script_path = app_dir.join(AGENT_RUNNING_SCRIPT_FILE_NAME);
     let status_script_path = app_dir.join(AGENT_STATUS_SCRIPT_FILE_NAME);
     let session_start_script_path = app_dir.join(AGENT_SESSION_START_SCRIPT_FILE_NAME);
-    let confirming_bat_path = app_dir.join(AGENT_CONFIRMING_BAT_FILE_NAME);
     let home_dir = windows_home_dir()?;
     let codex_config_path = home_dir.join(".codex").join("config.toml");
     let claude_config_path = home_dir.join(".claude").join("settings.json");
@@ -519,7 +519,6 @@ fn install_agent_status_hooks(app: AppHandle) -> Result<AgentHooksInstallResult,
         &running_script_path,
         &status_script_path,
         &session_start_script_path,
-        &confirming_bat_path,
     )?;
 
     // Clean up stale flag files from previous sessions
@@ -625,14 +624,17 @@ fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapsho
             let name = entry.file_name();
             let name = name.to_string_lossy();
 
-            // Check for confirming flag first (takes precedence)
             if name.starts_with(AGENT_RUNNING_FLAG_PREFIX) && name.ends_with(AGENT_CONFIRMING_FLAG_SUFFIX) {
                 let core = &name[AGENT_RUNNING_FLAG_PREFIX.len()..name.len() - AGENT_CONFIRMING_FLAG_SUFFIX.len()];
-                let provider = if let Some(idx) = core.find('-') {
-                    core[..idx].to_string()
-                } else {
-                    core.to_string()
-                };
+                let (provider, session_id) = parse_agent_marker_core(core);
+                active_sessions.retain(|session| {
+                    session.provider != provider || session.session_id != session_id
+                });
+                active_sessions.push(AgentSessionInfo {
+                    session_id,
+                    provider: provider.clone(),
+                    phase: "awaiting_confirmation".to_string(),
+                });
                 if provider.starts_with("codex") {
                     has_codex_confirming = true;
                 } else if provider.starts_with("claudeCode") {
@@ -647,20 +649,19 @@ fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapsho
             // Parse: agent-{provider}-{session_id}-running.flag
             //       or agent-{provider}-running.flag (legacy, no session_id)
             let core = &name[AGENT_RUNNING_FLAG_PREFIX.len()..name.len() - AGENT_RUNNING_FLAG_SUFFIX.len()];
-            let (provider, session_id) = if let Some(idx) = core.find('-') {
-                // Has session_id: agent-claudeCode-abc123-running.flag
-                let prov = core[..idx].to_string();
-                let sid = core[idx + 1..].to_string();
-                (prov, sid)
-            } else {
-                // Legacy: agent-claudeCode-running.flag (no session_id)
-                (core.to_string(), String::new())
-            };
+            let (provider, session_id) = parse_agent_marker_core(core);
 
-            active_sessions.push(AgentSessionInfo {
-                session_id: if session_id.is_empty() { "default".to_string() } else { session_id },
-                provider: provider.clone(),
-            });
+            if !active_sessions.iter().any(|session| {
+                session.provider == provider
+                    && session.session_id == session_id
+                    && session.phase == "awaiting_confirmation"
+            }) {
+                active_sessions.push(AgentSessionInfo {
+                    session_id,
+                    provider: provider.clone(),
+                    phase: "running".to_string(),
+                });
+            }
 
             if provider.starts_with("codex") {
                 has_codex = true;
@@ -686,6 +687,23 @@ fn apply_agent_running_markers(app_dir: &Path, snapshot: &mut AgentStatusSnapsho
         snapshot.claude_code.updated_at = now;
     }
     snapshot.active_sessions = active_sessions;
+}
+
+fn parse_agent_marker_core(core: &str) -> (String, String) {
+    if let Some(idx) = core.find('-') {
+        let provider = core[..idx].to_string();
+        let session_id = core[idx + 1..].to_string();
+        (
+            provider,
+            if session_id.is_empty() {
+                "default".to_string()
+            } else {
+                session_id
+            },
+        )
+    } else {
+        (core.to_string(), "default".to_string())
+    }
 }
 
 fn normalize_agent_task_status(mut status: AgentTaskStatus) -> AgentTaskStatus {
@@ -755,7 +773,6 @@ fn install_claude_code_status_hooks(
     running_script_path: &Path,
     status_script_path: &Path,
     session_start_script_path: &Path,
-    confirming_bat_path: &Path,
 ) -> Result<(), String> {
     let mut config = match fs::read_to_string(config_path) {
         Ok(content) if !content.trim().is_empty() => serde_json::from_str::<Value>(&content)
@@ -795,7 +812,7 @@ fn install_claude_code_status_hooks(
     install_claude_code_hook_event(
         hooks,
         "PermissionRequest",
-        claude_code_match_all_hook_entry(claude_code_confirming_hook_entry(confirming_bat_path)),
+        claude_code_match_all_hook_entry(claude_code_confirming_hook_entry(running_script_path)),
     );
     install_claude_code_hook_event(
         hooks,
@@ -882,15 +899,19 @@ fn claude_code_running_hook_entry(script_path: &Path) -> Value {
     )
 }
 
-fn claude_code_confirming_hook_entry(bat_path: &Path) -> Value {
+fn claude_code_confirming_hook_entry(script_path: &Path) -> Value {
     claude_code_hook_entry(
-        "cmd.exe",
+        "powershell.exe",
         vec![
-            "/c".to_string(),
-            bat_path.to_string_lossy().to_string(),
+            "-NoProfile".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-File".to_string(),
+            script_path.to_string_lossy().to_string(),
             "claudeCode".to_string(),
+            "confirming".to_string(),
         ],
-        1,
+        5,
     )
 }
 

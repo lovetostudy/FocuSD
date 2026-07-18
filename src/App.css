@@ -169,14 +169,14 @@ input {
 }
 
 .island__session-dot--running {
-  background-color: #ff5e4d;
-  box-shadow: 0 0 10px 3px rgba(255, 72, 54, 0.64);
+  background-color: #e8a400;
+  box-shadow: 0 0 10px 3px rgba(232, 164, 0, 0.58);
   animation: sessionDotPulse 1040ms ease infinite;
 }
 
 .island__session-dot--confirming {
-  background-color: #e8a400;
-  box-shadow: 0 0 10px 3px rgba(232, 164, 0, 0.58);
+  background-color: #ff5e4d;
+  box-shadow: 0 0 10px 3px rgba(255, 72, 54, 0.64);
 }
 
 @keyframes sessionDotPulse {
@@ -202,11 +202,11 @@ input {
 }
 
 .island__agent-status-icon--running {
-  color: #ff5e4d;
+  color: #e8a400;
 }
 
 .island__agent-status-icon--confirming {
-  color: #e8a400;
+  color: #ff5e4d;
 }
 
 

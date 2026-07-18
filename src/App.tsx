@@ -77,6 +77,7 @@ type AgentTaskStatus = {
 type AgentSessionInfo = {
   sessionId: string;
   provider: string;
+  phase: AgentTaskPhase;
 };
 
 type AgentStatusSnapshot = Record<AgentProvider, AgentTaskStatus> & {
@@ -603,6 +604,15 @@ function IslandShell({
     .filter(Boolean)
     .join(" ");
   const isAgentRunning = activeSessions.length > 0;
+  const getSessionDotClassName = (phase: AgentTaskPhase) =>
+    [
+      "island__session-dot",
+      phase === "awaiting_confirmation"
+        ? "island__session-dot--confirming"
+        : phase === "running"
+          ? "island__session-dot--running"
+          : "island__session-dot--idle",
+    ].join(" ");
   const agentStatusIconClassName = [
     "island__agent-status-icon",
     isAgentConfirming
@@ -614,12 +624,6 @@ function IslandShell({
   const collapsedLabel = activeTaskTitle
     ? `正在专注：${activeTaskTitle}`
     : "FocuSD Island";
-
-  const sessionDotClassName = isAgentConfirming
-    ? "island__session-dot island__session-dot--confirming"
-    : isAgentRunning
-    ? "island__session-dot island__session-dot--running"
-    : "island__session-dot island__session-dot--idle";
 
   return (
     <section
@@ -639,21 +643,16 @@ function IslandShell({
       <div className="island__collapsed" aria-hidden={isExpanded}>
         <div className="island__collapsed-row">
           <div className="island__session-dots">
-            {isAgentConfirming ? (
-              <span
-                className={sessionDotClassName}
-                title="等待确认"
-              />
-            ) : activeSessions.length > 0 ? (
+            {activeSessions.length > 0 ? (
               activeSessions.map((s) => (
                 <span
-                  key={s.sessionId}
-                  className={sessionDotClassName}
-                  title={`${s.provider}: ${s.sessionId.slice(0, 8)}`}
+                  key={`${s.provider}:${s.sessionId}`}
+                  className={getSessionDotClassName(s.phase)}
+                  title={`${s.provider}: ${s.sessionId.slice(0, 8)} ${s.phase}`}
                 />
               ))
             ) : (
-              <span className={sessionDotClassName} />
+              <span className={getSessionDotClassName("idle")} />
             )}
           </div>
           {activeTaskTitle ? (
@@ -2667,7 +2666,7 @@ function App() {
 
     const interval = window.setInterval(() => {
       void refreshAgentStatus();
-    }, 50);
+    }, 200);
 
     return () => window.clearInterval(interval);
   }, [refreshAgentStatus]);

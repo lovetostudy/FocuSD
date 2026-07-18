@@ -9,6 +9,28 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-HookSessionId {
+  try {
+    $stdin = [System.IO.StreamReader]::new([System.Console]::OpenStandardInput())
+    $rawJson = $stdin.ReadToEnd()
+    $stdin.Close()
+
+    if (-not $rawJson) {
+      return ""
+    }
+
+    $data = $rawJson | ConvertFrom-Json
+    if ($data.PSObject.Properties.Name -contains "session_id") {
+      return [string]$data.session_id
+    }
+    if ($data.PSObject.Properties.Name -contains "sessionId") {
+      return [string]$data.sessionId
+    }
+  } catch { }
+
+  return ""
+}
+
 if ($Provider -eq "codex") {
   $prefix = "agent-codex"
 } elseif ($Provider -eq "claudeCode") {
@@ -27,17 +49,9 @@ if ($env:FOCUSD_AGENT_STATUS_DIR) {
 
 New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
 
-# Try FOCUSD_SESSION_ID env var first
-$sessionId = $env:FOCUSD_SESSION_ID
-
-# Fallback: read from SessionStart's fixed file (more reliable than process tree)
+$sessionId = Get-HookSessionId
 if (-not $sessionId) {
-  $sessionFile = Join-Path $statusDir "session-claudeCode.txt"
-  if (Test-Path $sessionFile) {
-    try {
-      $sessionId = [System.IO.File]::ReadAllText($sessionFile, [System.Text.UTF8Encoding]::new($false)).Trim()
-    } catch { }
-  }
+  $sessionId = $env:FOCUSD_SESSION_ID
 }
 
 # Last resort: trace up process tree to find Claude Code process PID
@@ -76,9 +90,6 @@ if ($FlagType -eq "confirming") {
   # running mode: clear any stale confirming flag first, then create running flag
   $confirmingPath = Join-Path $statusDir "${baseMarker}-confirming.flag"
   Remove-Item -LiteralPath $confirmingPath -Force -ErrorAction SilentlyContinue
-  # Fallback: also clear session-less confirming flag created by confirming.bat
-  $legacyConfirmingPath = Join-Path $statusDir "${prefix}-confirming.flag"
-  Remove-Item -LiteralPath $legacyConfirmingPath -Force -ErrorAction SilentlyContinue
   $runningPath = Join-Path $statusDir "${baseMarker}-running.flag"
   [System.IO.File]::WriteAllText($runningPath, "", [System.Text.UTF8Encoding]::new($false))
 }
