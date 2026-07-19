@@ -110,6 +110,7 @@ type IslandSettings = {
   agentConfirmingColor: string;
   agentIdleColor: string;
   agentDotSize: number;
+  dotSize: number;
   collapsedFontSize: number;
   expandedFontSize: number;
   settingsFontDelta: number;
@@ -194,6 +195,7 @@ const DEFAULT_SETTINGS: IslandSettings = {
   agentConfirmingColor: "#ff5e4d",
   agentIdleColor: "#35e985",
   agentDotSize: 14,
+  dotSize: 24,
   collapsedFontSize: 14,
   expandedFontSize: 18,
   settingsFontDelta: 0,
@@ -292,6 +294,11 @@ function normalizeSettings(
       Number(settings?.agentDotSize ?? DEFAULT_SETTINGS.agentDotSize),
       6,
       40,
+    ),
+    dotSize: clamp(
+      Number(settings?.dotSize ?? DEFAULT_SETTINGS.dotSize),
+      12,
+      48,
     ),
     collapsedFontSize: clamp(
       Number(settings?.collapsedFontSize ?? DEFAULT_SETTINGS.collapsedFontSize),
@@ -1112,37 +1119,37 @@ function LayoutEditor({
           </label>
           <label className="color-control">
             <span className="color-control__meta">
-              <span>整体大小 (0.75–1.40)</span>
-              <strong>{settings.sizeScale.toFixed(2)}x</strong>
+              <span>亮点亮度 (50–160)</span>
+              <strong>{settings.pulseBrightness}%</strong>
             </span>
             <div className="number-stepper">
               <button
                 className="stepper-btn"
                 onClick={() => {
-                  const v = Math.max(0.75, +(settings.sizeScale - 0.05).toFixed(2));
-                  onSettingsChange({ ...settings, sizeScale: v });
+                  const v = Math.max(50, settings.pulseBrightness - 10);
+                  onSettingsChange({ ...settings, pulseBrightness: v });
                 }}
               >
                 −
               </button>
               <input
                 type="number"
-                min={0.75}
-                max={1.4}
-                step={0.01}
-                value={settings.sizeScale}
+                min={50}
+                max={160}
+                step={1}
+                value={settings.pulseBrightness}
                 onChange={(e) => {
                   const v = Number(e.target.value);
-                  if (v >= 0.75 && v <= 1.4) {
-                    onSettingsChange({ ...settings, sizeScale: v });
+                  if (v >= 50 && v <= 160) {
+                    onSettingsChange({ ...settings, pulseBrightness: v });
                   }
                 }}
               />
               <button
                 className="stepper-btn"
                 onClick={() => {
-                  const v = Math.min(1.4, +(settings.sizeScale + 0.05).toFixed(2));
-                  onSettingsChange({ ...settings, sizeScale: v });
+                  const v = Math.min(160, settings.pulseBrightness + 10);
+                  onSettingsChange({ ...settings, pulseBrightness: v });
                 }}
               >
                 +
@@ -1241,6 +1248,12 @@ function LayoutEditor({
             </div>
           </label>
         </div>
+      </section>
+
+      <section className="settings-section settings-section--size">
+        <div className="settings-section__header">
+          <span>大小调节</span>
+        </div>
         <div className="settings-row">
           <label className="color-control">
             <span className="color-control__meta">
@@ -1283,37 +1296,37 @@ function LayoutEditor({
           </label>
           <label className="color-control">
             <span className="color-control__meta">
-              <span>亮点亮度 (50–160)</span>
-              <strong>{settings.pulseBrightness}%</strong>
+              <span>分类点大小 (12–48)</span>
+              <strong>{settings.dotSize}px</strong>
             </span>
             <div className="number-stepper">
               <button
                 className="stepper-btn"
                 onClick={() => {
-                  const v = Math.max(50, settings.pulseBrightness - 10);
-                  onSettingsChange({ ...settings, pulseBrightness: v });
+                  const v = Math.max(12, settings.dotSize - 4);
+                  onSettingsChange({ ...settings, dotSize: v });
                 }}
               >
                 −
               </button>
               <input
                 type="number"
-                min={50}
-                max={160}
+                min={12}
+                max={48}
                 step={1}
-                value={settings.pulseBrightness}
+                value={settings.dotSize}
                 onChange={(e) => {
                   const v = Number(e.target.value);
-                  if (v >= 50 && v <= 160) {
-                    onSettingsChange({ ...settings, pulseBrightness: v });
+                  if (v >= 12 && v <= 48) {
+                    onSettingsChange({ ...settings, dotSize: v });
                   }
                 }}
               />
               <button
                 className="stepper-btn"
                 onClick={() => {
-                  const v = Math.min(160, settings.pulseBrightness + 10);
-                  onSettingsChange({ ...settings, pulseBrightness: v });
+                  const v = Math.min(48, settings.dotSize + 4);
+                  onSettingsChange({ ...settings, dotSize: v });
                 }}
               >
                 +
@@ -1441,7 +1454,45 @@ function LayoutEditor({
               </button>
             </div>
           </label>
-          <span />
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>整体大小 (0.75–1.40)</span>
+              <strong>{settings.sizeScale.toFixed(2)}x</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(0.75, +(settings.sizeScale - 0.05).toFixed(2));
+                  onSettingsChange({ ...settings, sizeScale: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={0.75}
+                max={1.4}
+                step={0.01}
+                value={settings.sizeScale}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= 0.75 && v <= 1.4) {
+                    onSettingsChange({ ...settings, sizeScale: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(1.4, +(settings.sizeScale + 0.05).toFixed(2));
+                  onSettingsChange({ ...settings, sizeScale: v });
+                }}
+              >
+                +
+              </button>
+            </div>
+          </label>
         </div>
       </section>
 
@@ -2533,6 +2584,7 @@ function App() {
         "--agent-confirming-glow-color": hexToRgba(settings.agentConfirmingColor, 0.64),
         "--agent-idle-color": settings.agentIdleColor,
         "--agent-dot-size": `${settings.agentDotSize}px`,
+        "--dot-size": `${settings.dotSize}px`,
         "--collapsed-font-size": `${settings.collapsedFontSize}px`,
         "--expanded-font-size": `${settings.expandedFontSize}px`,
         "--settings-font-delta": `${settings.settingsFontDelta}px`,
@@ -2550,6 +2602,7 @@ function App() {
       settings.agentConfirmingColor,
       settings.agentIdleColor,
       settings.agentDotSize,
+      settings.dotSize,
       settings.collapsedFontSize,
       settings.expandedFontSize,
       settings.settingsFontDelta,
