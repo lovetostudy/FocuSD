@@ -379,9 +379,9 @@ input {
   display: inline-flex;
   align-items: center;
   justify-self: start;
-  gap: 9px;
-  width: 96px;
-  height: 34px;
+  gap: 12px;
+  width: 108px;
+  height: 42px;
   padding-left: 4px;
 }
 
@@ -394,8 +394,8 @@ input {
 }
 
 .dot-button {
-  width: 12px;
-  height: 12px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: 999px;
@@ -420,36 +420,36 @@ input {
 
 .dot-button--layout {
   background: #858585;
-  box-shadow: 0 0 10px rgba(133, 133, 133, 0.36);
+  box-shadow: 0 0 20px rgba(133, 133, 133, 0.36);
 }
 
 .dot-button--todo {
   background: #74d6ff;
-  box-shadow: 0 0 12px rgba(116, 214, 255, 0.48);
+  box-shadow: 0 0 24px rgba(116, 214, 255, 0.48);
 }
 
 .dot-button--music {
   background: #b69cff;
-  box-shadow: 0 0 12px rgba(182, 156, 255, 0.46);
+  box-shadow: 0 0 24px rgba(182, 156, 255, 0.46);
 }
 
 .dot-button--active {
   box-shadow:
-    0 0 0 3px rgba(255, 255, 255, 0.18),
-    0 0 14px rgba(116, 214, 255, 0.42);
+    0 0 0 6px rgba(255, 255, 255, 0.18),
+    0 0 28px rgba(116, 214, 255, 0.42);
 }
 
 .dot-button--music.dot-button--active {
   box-shadow:
-    0 0 0 3px rgba(255, 255, 255, 0.18),
-    0 0 14px rgba(182, 156, 255, 0.54);
+    0 0 0 6px rgba(255, 255, 255, 0.18),
+    0 0 28px rgba(182, 156, 255, 0.54);
 }
 
 
 .dot-button--layout.dot-button--active {
   box-shadow:
-    0 0 0 3px rgba(255, 255, 255, 0.18),
-    0 0 14px rgba(133, 133, 133, 0.46);
+    0 0 0 6px rgba(255, 255, 255, 0.18),
+    0 0 28px rgba(133, 133, 133, 0.46);
 }
 
 .island--todo .icon-button {
@@ -2013,6 +2013,56 @@ input {
 .color-control input[type="number"]:focus-visible {
   border-color: rgba(116, 214, 255, 0.58);
   box-shadow: 0 0 0 3px rgba(116, 214, 255, 0.16);
+}
+
+.number-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.number-stepper input[type="number"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.stepper-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  color: rgba(248, 246, 240, 0.78);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.stepper-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.stepper-btn:active {
+  transform: translateY(1px);
+}
+
+.stepper-btn:focus-visible {
+  outline: 2px solid rgba(143, 216, 255, 0.88);
+  outline-offset: 2px;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .preset-panel {

@@ -885,73 +885,6 @@ function MusicWaveButton({
   );
 }
 
-function SliderControl({
-  label,
-  value,
-  min,
-  max,
-  step,
-  suffix,
-  onChange,
-  onChangeEnd,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  suffix: string;
-  onChange: (value: number) => void;
-  onChangeEnd?: (value: number) => void;
-}) {
-  return (
-    <label className="slider-control">
-      <span className="slider-control__meta">
-        <span>{label}</span>
-        <strong>
-          {step < 1 ? value.toFixed(2) : Math.round(value)}
-          {suffix}
-        </strong>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.currentTarget.value))}
-        onMouseUp={(event) => onChangeEnd?.(Number(event.currentTarget.value))}
-        onTouchEnd={(event) => onChangeEnd?.(Number(event.currentTarget.value))}
-      />
-    </label>
-  );
-}
-
-function ColorControl({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="color-control">
-      <span className="color-control__meta">
-        <span>{label}</span>
-        <strong>{value.toUpperCase()}</strong>
-      </span>
-      <input
-        type="color"
-        value={value}
-        aria-label={label}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      />
-    </label>
-  );
-}
-
 function ToggleControl({
   label,
   checked,
@@ -1056,50 +989,10 @@ function LayoutEditor({
         </button>
       </div>
 
-      <section className="settings-section settings-section--layout">
+      <section className="settings-section settings-section--general">
         <div className="settings-section__header">
-          <span>布局设置</span>
+          <span>常规</span>
         </div>
-        <SliderControl
-          label="不透明度"
-          value={settings.opacity}
-          min={50}
-          max={100}
-          step={1}
-          suffix="%"
-          onChange={(opacity) => onSettingsChange({ ...settings, opacity })}
-        />
-        <SliderControl
-          label="整体大小"
-          value={settings.sizeScale}
-          min={0.75}
-          max={1.4}
-          step={0.01}
-          suffix="x"
-          onChange={(sizeScale) => onSettingsChange({ ...settings, sizeScale })}
-        />
-        <SliderControl
-          label="上下边距"
-          value={settings.marginY}
-          min={0}
-          max={160}
-          step={1}
-          suffix="px"
-          onChange={(marginY) => onSettingsChange({ ...settings, marginY })}
-        />
-        <SliderControl
-          label="左右偏移"
-          value={marginXDraft ?? settings.marginX}
-          min={-300}
-          max={300}
-          step={1}
-          suffix="px"
-          onChange={(marginX) => setMarginXDraft(marginX)}
-          onChangeEnd={(marginX) => {
-            onSettingsChange({ ...settings, marginX });
-            setMarginXDraft(null);
-          }}
-        />
         <ToggleControl
           label="开机自启动"
           checked={launchAtStartup}
@@ -1152,61 +1045,261 @@ function LayoutEditor({
         ) : null}
       </section>
 
-      <section className="settings-section settings-section--storage">
+      <section className="settings-section settings-section--layout">
         <div className="settings-section__header">
-          <span>待办文件保存目录</span>
+          <span>布局设置</span>
         </div>
-        <div className="save-path-row">
-          <label className="save-path-field">
-            <span>文件夹</span>
-            <input
-              value={todosDirectoryDraft}
-              placeholder="例如 D:\FocuSD\todos"
-              aria-label="待办文件保存目录"
-              onChange={(event) =>
-                onTodosDirectoryDraftChange(event.currentTarget.value)
-              }
-            />
+        <div className="settings-row">
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>不透明度 (50–100)</span>
+              <strong>{settings.opacity}%</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(50, settings.opacity - 5);
+                  onSettingsChange({ ...settings, opacity: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={50}
+                max={100}
+                step={1}
+                value={settings.opacity}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= 50 && v <= 100) {
+                    onSettingsChange({ ...settings, opacity: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(100, settings.opacity + 5);
+                  onSettingsChange({ ...settings, opacity: v });
+                }}
+              >
+                +
+              </button>
+            </div>
           </label>
-          <button
-            className="save-path-button"
-            type="button"
-            onClick={onSaveTodosDirectory}
-          >
-            <Save size={14} strokeWidth={2.2} />
-            <span>保存</span>
-          </button>
-        </div>
-      </section>
-
-      <section className="settings-section settings-section--sync">
-        <div className="settings-section__header">
-          <span>多设备同步</span>
-        </div>
-        <div className="save-path-row">
-          <label className="save-path-field">
-            <span>服务器地址</span>
-            <input
-              value={syncServerUrl}
-              placeholder="例如 http://192.168.1.100:3456"
-              aria-label="同步服务器地址"
-              onChange={(event) =>
-                onSyncServerUrlChange(event.currentTarget.value)
-              }
-            />
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>整体大小 (0.75–1.40)</span>
+              <strong>{settings.sizeScale.toFixed(2)}x</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(0.75, +(settings.sizeScale - 0.05).toFixed(2));
+                  onSettingsChange({ ...settings, sizeScale: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={0.75}
+                max={1.4}
+                step={0.01}
+                value={settings.sizeScale}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= 0.75 && v <= 1.4) {
+                    onSettingsChange({ ...settings, sizeScale: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(1.4, +(settings.sizeScale + 0.05).toFixed(2));
+                  onSettingsChange({ ...settings, sizeScale: v });
+                }}
+              >
+                +
+              </button>
+            </div>
           </label>
-          <button
-            className="save-path-button"
-            type="button"
-            onClick={onSyncNow}
-          >
-            <Save size={14} strokeWidth={2.2} />
-            <span>同步</span>
-          </button>
         </div>
-        <p className="settings-hint" style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-          设备标识：{getDeviceId()} &nbsp;|&nbsp; 留空服务器地址则不同步
-        </p>
+        <div className="settings-row">
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>上下边距 (0–160)</span>
+              <strong>{settings.marginY}px</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(0, settings.marginY - 10);
+                  onSettingsChange({ ...settings, marginY: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={0}
+                max={160}
+                step={1}
+                value={settings.marginY}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= 0 && v <= 160) {
+                    onSettingsChange({ ...settings, marginY: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(160, settings.marginY + 10);
+                  onSettingsChange({ ...settings, marginY: v });
+                }}
+              >
+                +
+              </button>
+            </div>
+          </label>
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>左右偏移 (-300–300)</span>
+              <strong>{marginXDraft ?? settings.marginX}px</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const cur = marginXDraft ?? settings.marginX;
+                  const v = Math.max(-300, cur - 10);
+                  onSettingsChange({ ...settings, marginX: v });
+                  setMarginXDraft(null);
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={-300}
+                max={300}
+                step={1}
+                value={marginXDraft ?? settings.marginX}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= -300 && v <= 300) {
+                    setMarginXDraft(v);
+                  }
+                }}
+                onBlur={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= -300 && v <= 300) {
+                    onSettingsChange({ ...settings, marginX: v });
+                  }
+                  setMarginXDraft(null);
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const cur = marginXDraft ?? settings.marginX;
+                  const v = Math.min(300, cur + 10);
+                  onSettingsChange({ ...settings, marginX: v });
+                  setMarginXDraft(null);
+                }}
+              >
+                +
+              </button>
+            </div>
+          </label>
+        </div>
+        <div className="settings-row">
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>指示灯大小 (6–40)</span>
+              <strong>{settings.agentDotSize}px</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(6, settings.agentDotSize - 5);
+                  onSettingsChange({ ...settings, agentDotSize: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={6}
+                max={40}
+                step={1}
+                value={settings.agentDotSize}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= 6 && v <= 40) {
+                    onSettingsChange({ ...settings, agentDotSize: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(40, settings.agentDotSize + 5);
+                  onSettingsChange({ ...settings, agentDotSize: v });
+                }}
+              >
+                +
+              </button>
+            </div>
+          </label>
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>亮点亮度 (50–160)</span>
+              <strong>{settings.pulseBrightness}%</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(50, settings.pulseBrightness - 10);
+                  onSettingsChange({ ...settings, pulseBrightness: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={50}
+                max={160}
+                step={1}
+                value={settings.pulseBrightness}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= 50 && v <= 160) {
+                    onSettingsChange({ ...settings, pulseBrightness: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(160, settings.pulseBrightness + 10);
+                  onSettingsChange({ ...settings, pulseBrightness: v });
+                }}
+              >
+                +
+              </button>
+            </div>
+          </label>
+        </div>
       </section>
 
       <section className="settings-section settings-section--colors">
@@ -1295,67 +1388,169 @@ function LayoutEditor({
           </label>
         </div>
 
-        <label className="color-control" style={{ marginTop: 16 }}>
-          <span className="color-control__meta">
-            <span>指示灯大小</span>
-            <strong>{settings.agentDotSize}px</strong>
-          </span>
-          <input
-            type="number"
-            min={6}
-            max={40}
-            step={1}
-            value={settings.agentDotSize}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (v >= 6 && v <= 40) {
-                onSettingsChange({ ...settings, agentDotSize: v });
+        <div className="agent-light-row" style={{ marginTop: 16 }}>
+          <label className="agent-light-pick">
+            <span className="agent-light-pick__label">任务/待办字样</span>
+            <div
+              className="agent-light-pick__dot"
+              style={{ backgroundColor: settings.taskTextColor }}
+              onClick={(e) => {
+                const input = e.currentTarget
+                  .closest(".agent-light-pick")
+                  ?.querySelector("input") as HTMLInputElement | null;
+                input?.click();
+              }}
+            />
+            <input
+              type="color"
+              value={settings.taskTextColor}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  taskTextColor: e.target.value,
+                })
               }
-            }}
-          />
-        </label>
-
-        <div className="color-grid" style={{ marginTop: 16 }}>
-          <ColorControl
-            label="任务/待办字样"
-            value={settings.taskTextColor}
-            onChange={(taskTextColor) =>
-              onSettingsChange({ ...settings, taskTextColor })
-            }
-          />
-          <ColorControl
-            label="亮点颜色"
-            value={settings.pulseColor}
-            onChange={(pulseColor) =>
-              onSettingsChange({ ...settings, pulseColor })
-            }
-          />
-          <ColorControl
-            label="岛屿背景"
-            value={settings.islandBackgroundColor}
-            onChange={(islandBackgroundColor) =>
-              onSettingsChange({ ...settings, islandBackgroundColor })
-            }
-          />
-          <ColorControl
-            label="待办纸张"
-            value={settings.todoBackgroundColor}
-            onChange={(todoBackgroundColor) =>
-              onSettingsChange({ ...settings, todoBackgroundColor })
-            }
-          />
+            />
+            <strong className="agent-light-pick__hex">
+              {settings.taskTextColor}
+            </strong>
+          </label>
+          <label className="agent-light-pick">
+            <span className="agent-light-pick__label">亮点颜色</span>
+            <div
+              className="agent-light-pick__dot"
+              style={{ backgroundColor: settings.pulseColor }}
+              onClick={(e) => {
+                const input = e.currentTarget
+                  .closest(".agent-light-pick")
+                  ?.querySelector("input") as HTMLInputElement | null;
+                input?.click();
+              }}
+            />
+            <input
+              type="color"
+              value={settings.pulseColor}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  pulseColor: e.target.value,
+                })
+              }
+            />
+            <strong className="agent-light-pick__hex">
+              {settings.pulseColor}
+            </strong>
+          </label>
+          <label className="agent-light-pick">
+            <span className="agent-light-pick__label">岛屿背景</span>
+            <div
+              className="agent-light-pick__dot"
+              style={{ backgroundColor: settings.islandBackgroundColor }}
+              onClick={(e) => {
+                const input = e.currentTarget
+                  .closest(".agent-light-pick")
+                  ?.querySelector("input") as HTMLInputElement | null;
+                input?.click();
+              }}
+            />
+            <input
+              type="color"
+              value={settings.islandBackgroundColor}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  islandBackgroundColor: e.target.value,
+                })
+              }
+            />
+            <strong className="agent-light-pick__hex">
+              {settings.islandBackgroundColor}
+            </strong>
+          </label>
+          <label className="agent-light-pick">
+            <span className="agent-light-pick__label">待办纸张</span>
+            <div
+              className="agent-light-pick__dot"
+              style={{ backgroundColor: settings.todoBackgroundColor }}
+              onClick={(e) => {
+                const input = e.currentTarget
+                  .closest(".agent-light-pick")
+                  ?.querySelector("input") as HTMLInputElement | null;
+                input?.click();
+              }}
+            />
+            <input
+              type="color"
+              value={settings.todoBackgroundColor}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  todoBackgroundColor: e.target.value,
+                })
+              }
+            />
+            <strong className="agent-light-pick__hex">
+              {settings.todoBackgroundColor}
+            </strong>
+          </label>
         </div>
-        <SliderControl
-          label="亮点亮度"
-          value={settings.pulseBrightness}
-          min={50}
-          max={160}
-          step={1}
-          suffix="%"
-          onChange={(pulseBrightness) =>
-            onSettingsChange({ ...settings, pulseBrightness })
-          }
-        />
+      </section>
+
+      <section className="settings-section settings-section--storage">
+        <div className="settings-section__header">
+          <span>待办文件保存目录</span>
+        </div>
+        <div className="save-path-row">
+          <label className="save-path-field">
+            <span>文件夹</span>
+            <input
+              value={todosDirectoryDraft}
+              placeholder="例如 D:\FocuSD\todos"
+              aria-label="待办文件保存目录"
+              onChange={(event) =>
+                onTodosDirectoryDraftChange(event.currentTarget.value)
+              }
+            />
+          </label>
+          <button
+            className="save-path-button"
+            type="button"
+            onClick={onSaveTodosDirectory}
+          >
+            <Save size={14} strokeWidth={2.2} />
+            <span>保存</span>
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-section settings-section--sync">
+        <div className="settings-section__header">
+          <span>多设备同步</span>
+        </div>
+        <div className="save-path-row">
+          <label className="save-path-field">
+            <span>服务器地址</span>
+            <input
+              value={syncServerUrl}
+              placeholder="例如 http://192.168.1.100:3456"
+              aria-label="同步服务器地址"
+              onChange={(event) =>
+                onSyncServerUrlChange(event.currentTarget.value)
+              }
+            />
+          </label>
+          <button
+            className="save-path-button"
+            type="button"
+            onClick={onSyncNow}
+          >
+            <Save size={14} strokeWidth={2.2} />
+            <span>同步</span>
+          </button>
+        </div>
+        <p className="settings-hint" style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+          设备标识：{getDeviceId()} &nbsp;|&nbsp; 留空服务器地址则不同步
+        </p>
       </section>
 
       <section className="settings-section settings-section--presets">
