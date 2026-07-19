@@ -55,13 +55,15 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 
 ### Agent 状态灯脚本：`scripts/`
 
+同时支持 Claude Code 和 Codex (OpenAI)，分别安装到 `~/.claude/settings.json` 和 `~/.codex/config.toml`。
+
 三色状态：**蓝灯**运行中、**红灯**等待确认、**绿灯**空闲。
 
 | 脚本 | 触发时机 | 行为 |
 |------|---------|------|
-| `focusd-agent-session-start.ps1` | Claude Code SessionStart hook | 从 stdin 读 `session_id`，写入 `CLAUDE_ENV_FILE` |
+| `focusd-agent-session-start.ps1` | SessionStart hook（仅 Claude Code） | 从 stdin 读 `session_id`，写入 `CLAUDE_ENV_FILE` |
 | `focusd-agent-running.ps1` | UserPromptSubmit / PreToolUse | 读 `FOCUSD_SESSION_ID` 环境变量，创建 `agent-{provider}-{session_id}-running.flag`（蓝灯） |
-| `focusd-agent-confirming.bat` | PermissionRequest (*) | cmd.exe 创建 `agent-{provider}-{session_id}-confirming.flag`（红灯）并返回 allow 决策 |
+| `focusd-agent-confirming.bat` | PermissionRequest (*) | cmd.exe 创建 `agent-{provider}-{session_id}-confirming.flag`（红灯），不返回决策，由 Claude Code 自身处理权限 |
 | `focusd-agent-status.ps1` | Stop / StopFailure | 删当前 session 的 `-running.flag` 和 `-confirming.flag`，写 `agent-status.json`（绿灯） |
 
 `PreToolUse` 触发时 cmd.exe 快速清除 `-confirming.flag`（用户确认后恢复红灯）。PowerShell 脚本仅用于需要 JSON 解析/Mutex 的状态写入。

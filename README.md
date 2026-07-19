@@ -5,7 +5,7 @@
 ## 核心功能
 
 - **悬浮岛窗口**：透明、无边框、始终置顶。自适应内容宽度（180~400px），支持左右偏移。折叠态为单行胶囊，展开后进入各功能页面。
-- **AI Agent 状态灯**：胶囊内嵌三色指示灯（支持多个并发 session）。**蓝灯**运行中、**红灯**等待用户确认、**绿灯**空闲。安装 hooks 后，多个 Claude Code 实例各自独立亮灯。
+- **AI Agent 状态灯**：胶囊内嵌三色指示灯（支持多个并发 session）。**蓝灯**运行中、**红灯**等待用户确认、**绿灯**空闲。同时支持 Claude Code 和 Codex (OpenAI)，安装 hooks 后每个 Agent 实例独立亮灯。
 - **待办事项**：支持分类（Category）管理，默认 `TASKS` 分类。任务按分类分组显示，完成时自动归档。支持设专注任务。
 - **完成日记书**：按日期查看已完成事项，卡片/时间线两种布局，数据直接读磁盘文件。
 - **Markdown 保存**：未完成列表按分类分组保存为 `todos.md`（`## 分类名` 标题格式），已完成按日期追加到 `YYYY-MM-DD.md`。默认保存目录为安装目录下 `todos/`，可在设置中自定义。
@@ -18,7 +18,7 @@
 
 ### 安装包（推荐）
 
-从 GitHub Releases 下载 `FocuSD Island_0.1.1_x64-setup.exe`，按提示安装。
+从 GitHub Releases 下载最新 `FocuSD Island_x64-setup.exe`，按提示安装。
 
 ### 源码构建
 
@@ -71,7 +71,8 @@ pnpm tauri build
 ├── scripts/                # AI Agent 状态灯 hook 脚本
 │   ├── focusd-agent-running.ps1
 │   ├── focusd-agent-status.ps1
-│   └── focusd-agent-session-start.ps1
+│   ├── focusd-agent-session-start.ps1
+│   └── focusd-agent-confirming.bat
 ├── package.json
 └── README.md
 ```
@@ -86,10 +87,10 @@ pnpm tauri build
 
 ## AI Agent 状态灯
 
-安装后在设置页点击「安装/修复」，自动配置 Claude Code hooks：
+安装后在设置页点击「安装/修复」，自动为 Claude Code 和 Codex 配置 hooks：
 - `SessionStart`：捕获 session_id 写入环境变量
 - `UserPromptSubmit` / `PreToolUse`：标记当前 session 运行中（蓝灯）
-- `PermissionRequest`：标记等待用户确认（红灯），并返回 allow 不阻塞
+- `PermissionRequest`：标记等待用户确认（红灯），不干预 Claude Code 自身权限决策
 - `Stop` / `StopFailure`：标记任务完成/失败（绿灯）
 
-多个 Claude Code 实例并发时，每个 session 独立亮灯，胶囊上方显示对应数量的指示灯。
+多个 Agent 实例并发时，每个 session 独立亮灯，胶囊上方显示对应数量的指示灯。
