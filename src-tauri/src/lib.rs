@@ -75,7 +75,7 @@ const AGENT_RUNNING_SCRIPT: &str = include_str!("../../scripts/focusd-agent-runn
 const AGENT_STATUS_SCRIPT: &str = include_str!("../../scripts/focusd-agent-status.ps1");
 const AGENT_SESSION_START_SCRIPT: &str = include_str!("../../scripts/focusd-agent-session-start.ps1");
 const AGENT_CONFIRMING_BAT_FILE_NAME: &str = "focusd-agent-confirming.bat";
-const AGENT_CONFIRMING_BAT: &str = "@echo off\r\nsetlocal\r\nset \"SD=%FOCUSD_AGENT_STATUS_DIR%\"\r\nif \"%SD%\"==\"\" set \"SD=%APPDATA%\\com.focusd.island\"\r\nif not exist \"%SD%\" md \"%SD%\" 2>nul\r\nset \"PROVIDER=%1\"\r\nif \"%PROVIDER%\"==\"\" set \"PROVIDER=claudeCode\"\r\nset \"SID=%FOCUSD_SESSION_ID%\"\r\nif \"%SID%\"==\"\" (\r\n    type nul > \"%SD%\\agent-%PROVIDER%-confirming.flag\"\r\n) else (\r\n    type nul > \"%SD%\\agent-%PROVIDER%-%SID%-confirming.flag\"\r\n)\r\necho {\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":{\"behavior\":\"allow\"}}}\r\n";
+const AGENT_CONFIRMING_BAT: &str = "@echo off\r\nsetlocal\r\nset \"SD=%FOCUSD_AGENT_STATUS_DIR%\"\r\nif \"%SD%\"==\"\" set \"SD=%APPDATA%\\com.focusd.island\"\r\nif not exist \"%SD%\" md \"%SD%\" 2>nul\r\nset \"PROVIDER=%1\"\r\nif \"%PROVIDER%\"==\"\" set \"PROVIDER=claudeCode\"\r\nset \"SID=%FOCUSD_SESSION_ID%\"\r\nif \"%SID%\"==\"\" (\r\n    type nul > \"%SD%\\agent-%PROVIDER%-confirming.flag\"\r\n) else (\r\n    type nul > \"%SD%\\agent-%PROVIDER%-%SID%-confirming.flag\"\r\n)\r\n";
 
 static WINDOW_STATE: OnceLock<Mutex<IslandWindowState>> = OnceLock::new();
 static STALE_FLAGS_CLEANED: AtomicBool = AtomicBool::new(false);
