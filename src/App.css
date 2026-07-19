@@ -222,7 +222,7 @@ input {
   flex: 1;
   overflow: hidden;
   color: var(--task-text-color);
-  font-size: 14px;
+  font-size: var(--collapsed-font-size, 14px);
   font-weight: 700;
   line-height: 1;
   text-overflow: ellipsis;
@@ -234,7 +234,7 @@ input {
   flex: 1;
   overflow: hidden;
   color: var(--task-text-color);
-  font-size: 15px;
+  font-size: calc(var(--collapsed-font-size, 14px) + 1px);
   font-weight: 700;
   line-height: 1.05;
   text-overflow: ellipsis;
@@ -1170,7 +1170,7 @@ input {
     "Segoe UI Variable",
     "Segoe UI",
     sans-serif;
-  font-size: 18px;
+  font-size: var(--expanded-font-size, 18px);
   font-weight: 700;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -1198,7 +1198,7 @@ input {
     "Segoe UI Variable",
     "Segoe UI",
     sans-serif;
-  font-size: 18px;
+  font-size: var(--expanded-font-size, 18px);
   font-weight: 700;
   line-height: 1.35;
 }
@@ -1218,7 +1218,7 @@ input {
   border-radius: 999px;
   outline: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px + var(--settings-font-delta, 0px));
   font-weight: 800;
   line-height: 1;
   transition:
@@ -1609,7 +1609,7 @@ input {
   padding-bottom: 0;
   color: rgba(248, 246, 240, 0.88);
   border-bottom: 0;
-  font-size: 13px;
+  font-size: calc(13px + var(--settings-font-delta, 0px));
   font-weight: 800;
   line-height: 1;
 }
@@ -1689,7 +1689,7 @@ input {
   border-radius: 999px;
   outline: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px + var(--settings-font-delta, 0px));
   font-weight: 800;
   transition:
     background 140ms ease,
@@ -1730,7 +1730,7 @@ input {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  font-size: 11px;
+  font-size: calc(11px + var(--settings-font-delta, 0px));
   font-weight: 700;
   line-height: 1.25;
 }
@@ -1743,7 +1743,7 @@ input {
   min-width: 0;
   overflow: hidden;
   color: rgba(248, 246, 240, 0.88);
-  font-size: 11px;
+  font-size: calc(11px + var(--settings-font-delta, 0px));
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1806,7 +1806,7 @@ input {
   justify-content: space-between;
   gap: 12px;
   color: rgba(248, 246, 240, 0.72);
-  font-size: 12px;
+  font-size: calc(12px + var(--settings-font-delta, 0px));
   font-weight: 800;
   line-height: 1;
 }
@@ -1896,7 +1896,7 @@ input {
 
 .agent-light-pick__label {
   color: rgba(248, 246, 240, 0.62);
-  font-size: 12px;
+  font-size: calc(12px + var(--settings-font-delta, 0px));
   font-weight: 700;
   line-height: 1;
 }
@@ -1925,7 +1925,7 @@ input {
 
 .agent-light-pick__hex {
   color: rgba(248, 246, 240, 0.9);
-  font-size: 11px;
+  font-size: calc(11px + var(--settings-font-delta, 0px));
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -1944,7 +1944,7 @@ input {
   gap: 8px;
   min-width: 0;
   color: rgba(248, 246, 240, 0.62);
-  font-size: 12px;
+  font-size: calc(12px + var(--settings-font-delta, 0px));
   font-weight: 700;
   line-height: 1;
 }
@@ -1958,7 +1958,7 @@ input {
 
 .color-control__meta strong {
   color: rgba(248, 246, 240, 0.9);
-  font-size: 11px;
+  font-size: calc(11px + var(--settings-font-delta, 0px));
   font-weight: 800;
   line-height: 1;
 }
@@ -1998,7 +1998,7 @@ input {
   border-radius: 8px;
   outline: none;
   color: rgba(248, 246, 240, 0.9);
-  font-size: 13px;
+  font-size: calc(13px + var(--settings-font-delta, 0px));
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   -moz-appearance: textfield;
@@ -2039,7 +2039,7 @@ input {
   border-radius: 8px;
   outline: none;
   cursor: pointer;
-  font-size: 16px;
+  font-size: calc(16px + var(--settings-font-delta, 0px));
   font-weight: 700;
   line-height: 1;
   transition: background 140ms ease, color 140ms ease;
@@ -2098,7 +2098,7 @@ input {
   border-radius: 999px;
   outline: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px + var(--settings-font-delta, 0px));
   font-weight: 800;
 }
 
@@ -2235,7 +2235,7 @@ input {
 
 .save-path-field span {
   color: rgba(248, 246, 240, 0.62);
-  font-size: 12px;
+  font-size: calc(12px + var(--settings-font-delta, 0px));
   font-weight: 700;
   line-height: 1;
 }
@@ -2272,7 +2272,7 @@ input {
   border-radius: 999px;
   outline: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px + var(--settings-font-delta, 0px));
   font-weight: 800;
   transition:
     background 140ms ease,

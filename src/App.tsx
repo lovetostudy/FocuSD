@@ -110,6 +110,9 @@ type IslandSettings = {
   agentConfirmingColor: string;
   agentIdleColor: string;
   agentDotSize: number;
+  collapsedFontSize: number;
+  expandedFontSize: number;
+  settingsFontDelta: number;
 };
 
 type IslandPreset = {
@@ -191,6 +194,9 @@ const DEFAULT_SETTINGS: IslandSettings = {
   agentConfirmingColor: "#ff5e4d",
   agentIdleColor: "#35e985",
   agentDotSize: 14,
+  collapsedFontSize: 14,
+  expandedFontSize: 18,
+  settingsFontDelta: 0,
 };
 const LEGACY_DEFAULT_PRESET_IDS = new Set(["default-white", "default-khaki"]);
 const LEGACY_DEFAULT_PRESET_NAMES = new Set(["白色", "卡其"]);
@@ -286,6 +292,21 @@ function normalizeSettings(
       Number(settings?.agentDotSize ?? DEFAULT_SETTINGS.agentDotSize),
       6,
       40,
+    ),
+    collapsedFontSize: clamp(
+      Number(settings?.collapsedFontSize ?? DEFAULT_SETTINGS.collapsedFontSize),
+      10,
+      24,
+    ),
+    expandedFontSize: clamp(
+      Number(settings?.expandedFontSize ?? DEFAULT_SETTINGS.expandedFontSize),
+      12,
+      32,
+    ),
+    settingsFontDelta: clamp(
+      Number(settings?.settingsFontDelta ?? DEFAULT_SETTINGS.settingsFontDelta),
+      -4,
+      8,
     ),
   };
 }
@@ -1299,6 +1320,128 @@ function LayoutEditor({
               </button>
             </div>
           </label>
+        </div>
+        <div className="settings-row">
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>缩略待办字体 (10–24)</span>
+              <strong>{settings.collapsedFontSize}px</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(10, settings.collapsedFontSize - 2);
+                  onSettingsChange({ ...settings, collapsedFontSize: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={10}
+                max={24}
+                step={1}
+                value={settings.collapsedFontSize}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= 10 && v <= 24) {
+                    onSettingsChange({ ...settings, collapsedFontSize: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(24, settings.collapsedFontSize + 2);
+                  onSettingsChange({ ...settings, collapsedFontSize: v });
+                }}
+              >
+                +
+              </button>
+            </div>
+          </label>
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>展开待办字体 (12–32)</span>
+              <strong>{settings.expandedFontSize}px</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(12, settings.expandedFontSize - 2);
+                  onSettingsChange({ ...settings, expandedFontSize: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={12}
+                max={32}
+                step={1}
+                value={settings.expandedFontSize}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= 12 && v <= 32) {
+                    onSettingsChange({ ...settings, expandedFontSize: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(32, settings.expandedFontSize + 2);
+                  onSettingsChange({ ...settings, expandedFontSize: v });
+                }}
+              >
+                +
+              </button>
+            </div>
+          </label>
+        </div>
+        <div className="settings-row">
+          <label className="color-control">
+            <span className="color-control__meta">
+              <span>设置界面字体 (-4–8)</span>
+              <strong>{settings.settingsFontDelta >= 0 ? "+" : ""}{settings.settingsFontDelta}px</strong>
+            </span>
+            <div className="number-stepper">
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.max(-4, settings.settingsFontDelta - 2);
+                  onSettingsChange({ ...settings, settingsFontDelta: v });
+                }}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min={-4}
+                max={8}
+                step={1}
+                value={settings.settingsFontDelta}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v >= -4 && v <= 8) {
+                    onSettingsChange({ ...settings, settingsFontDelta: v });
+                  }
+                }}
+              />
+              <button
+                className="stepper-btn"
+                onClick={() => {
+                  const v = Math.min(8, settings.settingsFontDelta + 2);
+                  onSettingsChange({ ...settings, settingsFontDelta: v });
+                }}
+              >
+                +
+              </button>
+            </div>
+          </label>
+          <span />
         </div>
       </section>
 
@@ -2390,6 +2533,9 @@ function App() {
         "--agent-confirming-glow-color": hexToRgba(settings.agentConfirmingColor, 0.64),
         "--agent-idle-color": settings.agentIdleColor,
         "--agent-dot-size": `${settings.agentDotSize}px`,
+        "--collapsed-font-size": `${settings.collapsedFontSize}px`,
+        "--expanded-font-size": `${settings.expandedFontSize}px`,
+        "--settings-font-delta": `${settings.settingsFontDelta}px`,
       }) as CSSProperties,
     [
       expandedIslandHeight,
@@ -2404,6 +2550,9 @@ function App() {
       settings.agentConfirmingColor,
       settings.agentIdleColor,
       settings.agentDotSize,
+      settings.collapsedFontSize,
+      settings.expandedFontSize,
+      settings.settingsFontDelta,
     ],
   );
 
