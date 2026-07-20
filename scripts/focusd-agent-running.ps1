@@ -84,8 +84,6 @@ if ($FlagType -eq "confirming") {
   # Create confirming flag, keep running flag intact
   $confirmingPath = Join-Path $statusDir "${baseMarker}-confirming.flag"
   [System.IO.File]::WriteAllText($confirmingPath, "", [System.Text.UTF8Encoding]::new($false))
-  # Return PermissionRequest allow decision to avoid blocking the permission dialog
-  [Console]::Out.Write('{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}')
 } else {
   # running mode: clear any stale confirming flag first, then create running flag
   $confirmingPath = Join-Path $statusDir "${baseMarker}-confirming.flag"
