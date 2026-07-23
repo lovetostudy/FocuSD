@@ -27,8 +27,9 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 - `TodoPageMode`: `"today"` | `"archive"`（点1 待办列表 / 点3 完成日记书）
 - `ArchiveLayout`: `"cards"` | `"timeline"`
 - `AgentSessionInfo`: `{ sessionId, provider }` — per-session 状态灯
+- `PluginManifest`: `{ id, name, version, description, author, icon, isLoad }` — 插件清单
 
-**持久化**：全部用 `localStorage`，key 前缀 `focusd-island-`。包括：settings、presets、todos、active-todo、todos-directory。
+**持久化**：全部用 `localStorage`，key 前缀 `focusd-island-`。包括：settings、presets、todos、active-todo、todos-directory。`pluginHtmlCache` 为运行时内存缓存（`Map<string, string>`）。
 
 **Tauri 通信**：通过 `invoke()` 调用 Rust 命令，通过 `listen()` 监听 Rust 事件。
 
@@ -48,6 +49,9 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 | `get_media_state` / `get_audio_level` | Windows 音频 |
 | `media_play_pause` / `media_next` / `media_previous` | 媒体控制 |
 | `list_todos_files` / `read_todos_file` | 待办文件 I/O |
+| `list_plugins` | 扫描 `<exe_dir>/plugs/` 下含 `plugin.json` 的子目录，返回 `Vec<PluginManifest>`。过滤 `isLoad: false` 的插件 |
+| `read_plugin_html` | 读取插件 `index.html`，返回 HTML 字符串 |
+| `get_app_version` | 返回 `CARGO_PKG_VERSION` |
 
 ### 多设备同步
 
@@ -82,10 +86,14 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 ## 文件存储
 
 ```
-{todos目录}/
-├── todos.md           ← 未完成列表（覆盖写，按 ## 分类分组）
-├── 2026-07-11.md      ← 已完成归档（追加写，不带分类）
-└── 2026-07-10.md
+{安装目录}/
+├── focusd-island.exe
+├── plugs/             ← 插件目录（运行时扫描加载）
+├── todos/             ← 待办目录（可自定义路径）
+│   ├── todos.md       ← 未完成列表（覆盖写，按 ## 分类分组）
+│   ├── 2026-07-11.md  ← 已完成归档（追加写，不带分类）
+│   └── 2026-07-10.md
+└── uninstall.exe
 ```
 
 `todos.md` 格式：
@@ -96,6 +104,54 @@ pnpm tauri build --no-bundle  # 仅生成 exe
 
 ## 工作
 - [ ] 工作相关任务
+```
+
+## 插件系统
+
+启动时 `list_plugins` 扫描 `<exe_dir>/plugs/` 目录，每个子目录代表一个插件。前端在展开态动态渲染插件 dot（最多 6 个），点击后通过 `<iframe srcDoc>` 渲染插件的 `index.html`。HTML 内容按需加载并缓存在 `pluginHtmlCache`（运行时 `Map`）。
+
+### 插件开发标准
+
+```
+{安装目录}/plugs/
+└── plugin-name/
+    ├── plugin.json    — 清单文件（必须）
+    └── index.html     — 入口页面（必须，单文件自包含）
+```
+
+**plugin.json 字段：**
+
+| 字段 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `name` | 是 | — | 插件名称，显示在 dot tooltip |
+| `version` | 是 | — | 语义化版本号 |
+| `icon` | 否 | `#74d6ff` | dot 颜色（hex） |
+| `isLoad` | 否 | `true` | `false` 时不加载 |
+| `description` | 否 | `""` | 简短描述 |
+| `author` | 否 | `""` | 作者 |
+
+**index.html 规范：**
+- 单文件自包含（CSS/JS 内联），宽度自适应 ~360px
+- 可联网（iframe sandbox 含 `allow-scripts allow-same-origin`）
+- 通信走 `window.parent.postMessage({ type, payload })`
+
+**宿主 postMessage API：**
+
+| 方向 | type | payload | 说明 |
+|------|------|---------|------|
+| host → plugin | `focusd:init` | `{ width, height }` | 宿主就绪 |
+| plugin → host | `focusd:resize` | `{ height: number }` | 请求调整面板高度 |
+
+### 插件存储
+
+```
+{安装目录}/plugs/
+├── hello/              ← 示例插件
+│   ├── plugin.json
+│   └── index.html
+└── github-info/        ← 联网查询插件
+    ├── plugin.json
+    └── index.html
 ```
 
 ## 开发注意事项
