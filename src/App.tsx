@@ -124,6 +124,16 @@ type IslandPreset = {
   isDefault?: boolean;
 };
 
+type PluginManifest = {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  icon: string;
+  isLoad: boolean;
+};
+
 type IslandShellProps = {
   mode: IslandMode;
   page: IslandPage;
@@ -140,6 +150,9 @@ type IslandShellProps = {
   onReveal: () => void;
   onPageChange: (page: IslandPage) => void;
   children: ReactNode;
+  plugins: PluginManifest[];
+  activePluginId: string | null;
+  onPluginOpen: (pluginId: string) => void;
 };
 
 const STORAGE_KEY = "focusd-island-settings";
@@ -155,6 +168,7 @@ const BASE_EXPANDED_ISLAND_HEIGHT = 306;
 const TODO_ARCHIVE_EXPANDED_ISLAND_HEIGHT = 352;
 const MUSIC_EXPANDED_ISLAND_HEIGHT = 286;
 const EDITOR_EXPANDED_ISLAND_HEIGHT = 430;
+const PLUGIN_EXPANDED_ISLAND_HEIGHT = 420;
 const TODO_ROW_HEIGHT = 46;
 const TODO_TITLE_CHARACTERS_PER_LINE = 32;
 const TODO_MAX_ESTIMATED_TITLE_LINES = 5;
@@ -644,15 +658,19 @@ function IslandShell({
   onReveal,
   onPageChange,
   children,
+  plugins,
+  activePluginId,
+  onPluginOpen,
 }: IslandShellProps) {
   const isExpanded = mode === "expanded";
+  const isPluginActive = activePluginId !== null;
   const isMusicPlaying =
     mediaState.playbackStatus === "playing" ||
     (mediaState.playbackStatus !== "paused" && mediaState.audioActive);
   const className = [
     "island",
     `island--${mode}`,
-    `island--${page}`,
+    isPluginActive ? "island--plugin" : `island--${page}`,
   ]
     .filter(Boolean)
     .join(" ");
@@ -754,7 +772,9 @@ function IslandShell({
           >
             <button
               className={`dot-button dot-button--todo ${
-                page === "todo" ? "dot-button--active" : ""
+                !isPluginActive && page === "todo"
+                  ? "dot-button--active"
+                  : ""
               }`}
               type="button"
               title="任务清单"
@@ -766,7 +786,9 @@ function IslandShell({
             />
             <button
               className={`dot-button dot-button--music ${
-                page === "music" ? "dot-button--active" : ""
+                !isPluginActive && page === "music"
+                  ? "dot-button--active"
+                  : ""
               }`}
               type="button"
               title="Music"
@@ -778,7 +800,9 @@ function IslandShell({
             />
             <button
               className={`dot-button dot-button--layout ${
-                page === "layout" ? "dot-button--active" : ""
+                !isPluginActive && page === "layout"
+                  ? "dot-button--active"
+                  : ""
               }`}
               type="button"
               title="布局编辑"
@@ -788,6 +812,22 @@ function IslandShell({
                 onPageChange("layout");
               }}
             />
+            {plugins.slice(0, 6).map((plugin) => (
+              <button
+                key={plugin.id}
+                className={`dot-button dot-button--plugin ${
+                  activePluginId === plugin.id ? "dot-button--active" : ""
+                }`}
+                style={{ background: plugin.icon }}
+                type="button"
+                title={plugin.name}
+                aria-label={plugin.name}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onPluginOpen(plugin.id);
+                }}
+              />
+            ))}
           </div>
 
           <div
@@ -982,6 +1022,11 @@ function LayoutEditor({
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [presetNameDraft, setPresetNameDraft] = useState("");
   const [marginXDraft, setMarginXDraft] = useState<number | null>(null);
+  const [appVersion, setAppVersion] = useState("");
+
+  useEffect(() => {
+    invoke<string>("get_app_version").then(setAppVersion).catch(() => {});
+  }, []);
 
   const startPresetRename = useCallback((preset: IslandPreset) => {
     setEditingPresetId(preset.id);
@@ -1836,6 +1881,12 @@ function LayoutEditor({
         )}
       </section>
 
+      {appVersion ? (
+        <div className="settings-version">
+          <span>版本 {appVersion}</span>
+        </div>
+      ) : null}
+
     </div>
   );
 }
@@ -2534,6 +2585,11 @@ function App() {
   const [agentHooksInstallResult, setAgentHooksInstallResult] =
     useState<AgentHooksInstallResult | null>(null);
   const [agentHooksInstallError, setAgentHooksInstallError] = useState("");
+  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
+  const [activePluginId, setActivePluginId] = useState<string | null>(null);
+  const [pluginHtmlCache, setPluginHtmlCache] = useState<Map<string, string>>(
+    new Map(),
+  );
   const didShowInitialWindow = useRef(false);
   const isTodoArchivePage = page === "todo" && todoPageMode === "archive";
   const visibleTodoRows = Math.min(
@@ -2545,8 +2601,9 @@ function App() {
     ),
     TODO_SCROLL_START_ROWS,
   );
-  const expandedIslandHeight =
-    page === "todo"
+  const expandedIslandHeight = activePluginId
+    ? PLUGIN_EXPANDED_ISLAND_HEIGHT
+    : page === "todo"
       ? isTodoArchivePage
         ? TODO_ARCHIVE_EXPANDED_ISLAND_HEIGHT
         : BASE_EXPANDED_ISLAND_HEIGHT +
@@ -2740,11 +2797,37 @@ function App() {
     setIsTucked(false);
   }, []);
 
+  const handlePageChange = useCallback((nextPage: IslandPage) => {
+    setPage(nextPage);
+    setActivePluginId(null);
+  }, []);
+
   const openIslandPage = useCallback((nextPage: IslandPage) => {
     setPage(nextPage);
+    setActivePluginId(null);
     setMode("expanded");
     setIsTucked(false);
   }, []);
+
+  const handlePluginOpen = useCallback(
+    async (pluginId: string) => {
+      setMode("expanded");
+      setIsTucked(false);
+      if (!pluginHtmlCache.has(pluginId)) {
+        try {
+          const html = await invoke<string>("read_plugin_html", {
+            pluginId,
+          });
+          setPluginHtmlCache((prev) => new Map(prev).set(pluginId, html));
+        } catch (error) {
+          console.error("Failed to load plugin HTML", error);
+          return;
+        }
+      }
+      setActivePluginId(pluginId);
+    },
+    [pluginHtmlCache],
+  );
 
   const collapseIsland = useCallback(() => {
     setIslandMode("collapsed");
@@ -3226,6 +3309,17 @@ function App() {
 
   useEffect(() => {
     void (async () => {
+      try {
+        const list = await invoke<PluginManifest[]>("list_plugins");
+        setPlugins(list);
+      } catch (error) {
+        console.error("Failed to list plugins", error);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
       if (!todosDirectory) {
         try {
           const exeDir = await invoke<string>("get_exe_dir");
@@ -3429,9 +3523,22 @@ function App() {
         onMinimize={minimizeIsland}
         onTuck={tuckIsland}
         onReveal={revealIsland}
-        onPageChange={setPage}
+        onPageChange={handlePageChange}
+        plugins={plugins}
+        activePluginId={activePluginId}
+        onPluginOpen={handlePluginOpen}
       >
-        {page === "layout" && (
+        {activePluginId && pluginHtmlCache.has(activePluginId) && (
+          <iframe
+            className="plugin-frame"
+            srcDoc={pluginHtmlCache.get(activePluginId)}
+            sandbox="allow-scripts allow-same-origin"
+            title={
+              plugins.find((p) => p.id === activePluginId)?.name ?? "Plugin"
+            }
+          />
+        )}
+        {!activePluginId && page === "layout" && (
           <LayoutEditor
             settings={settings}
             todosDirectoryDraft={todosDirectoryDraft}
@@ -3455,7 +3562,7 @@ function App() {
             onSyncNow={handleSyncNow}
           />
         )}
-        {page === "music" && (
+        {!activePluginId && page === "music" && (
           <MusicPlayerPanel
             mediaState={mediaState}
             onPlayPause={() => void runMediaCommand("media_play_pause")}
@@ -3463,7 +3570,7 @@ function App() {
             onPrevious={() => void runMediaCommand("media_previous")}
           />
         )}
-        {page === "todo" && (
+        {!activePluginId && page === "todo" && (
           <TodoNotebook
             todos={todos}
             draft={draftTodo}

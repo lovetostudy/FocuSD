@@ -236,6 +236,31 @@ struct AgentHooksInstallResult {
     installed_at: i64,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct PluginManifest {
+    #[serde(default)]
+    id: String,
+    name: String,
+    version: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    author: String,
+    #[serde(default = "default_plugin_icon")]
+    icon: String,
+    #[serde(default = "default_is_load")]
+    #[serde(alias = "isLoad")]
+    is_load: bool,
+}
+
+fn default_is_load() -> bool {
+    true
+}
+
+fn default_plugin_icon() -> String {
+    "#74d6ff".to_string()
+}
+
 fn default_agent_phase() -> String {
     "idle".to_string()
 }
@@ -441,11 +466,16 @@ fn list_completed_archives(directory: String) -> Result<Vec<CompletedArchive>, S
     Ok(archives)
 }
 
+fn exe_dir() -> Result<String, String> {
+    let exe = env::current_exe().map_err(|e| e.to_string())?;
+    exe.parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "无法获取可执行文件目录".to_string())
+}
+
 #[tauri::command]
 fn get_exe_dir() -> Result<String, String> {
-    let exe = env::current_exe().map_err(|e| e.to_string())?;
-    let dir = exe.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    Ok(dir)
+    exe_dir()
 }
 
 fn is_date_string(s: &str) -> bool {
@@ -567,6 +597,47 @@ fn media_next() {
 #[tauri::command]
 fn media_previous() {
     send_media_key(VK_MEDIA_PREV_TRACK);
+}
+
+#[tauri::command]
+fn get_app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+#[tauri::command]
+fn list_plugins() -> Result<Vec<PluginManifest>, String> {
+    let exe_dir = exe_dir()?;
+    let plugs_dir = Path::new(&exe_dir).join("plugs");
+    if !plugs_dir.exists() || !plugs_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut plugins = Vec::new();
+    let entries = fs::read_dir(&plugs_dir).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let manifest_path = entry.path().join("plugin.json");
+        if !manifest_path.exists() {
+            continue;
+        }
+        let content = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
+        let mut manifest: PluginManifest =
+            serde_json::from_str(&content).map_err(|e| format!("{}: {}", entry.file_name().to_string_lossy(), e))?;
+        manifest.id = entry.file_name().to_string_lossy().to_string();
+        if manifest.is_load {
+            plugins.push(manifest);
+        }
+    }
+    Ok(plugins)
+}
+
+#[tauri::command]
+fn read_plugin_html(plugin_id: String) -> Result<String, String> {
+    let exe_dir = exe_dir()?;
+    let html_path = Path::new(&exe_dir).join("plugs").join(&plugin_id).join("index.html");
+    fs::read_to_string(&html_path).map_err(|e| e.to_string())
 }
 
 fn read_media_state() -> MediaState {
@@ -1530,6 +1601,9 @@ pub fn run() {
             media_play_pause,
             media_next,
             media_previous,
+            get_app_version,
+            list_plugins,
+            read_plugin_html,
         ])
         .run(tauri::generate_context!())
         .expect("error while running FocuSD Island");
